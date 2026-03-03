@@ -502,55 +502,26 @@ body {
 .jbn { color: #94a3b8; }       /* null → muted */
 .jp  { color: #64748b; }       /* punctuation */
 
-/* ── ID Chips row (list → get quick-open) ─────────────────────────── */
-.chips-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(0,212,255,0.03);
-  overflow-x: auto;
-  flex-shrink: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
-  flex-wrap: nowrap;
-}
-.chips-row::-webkit-scrollbar { height: 3px; }
-.chips-row::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-
-.chips-label {
-  font-size: 10px;
-  color: var(--text-3);
-  white-space: nowrap;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.id-chip {
-  background: rgba(0,212,255,0.07);
-  border: 1px solid rgba(0,212,255,0.2);
-  color: var(--cyan);
-  border-radius: 20px;
-  padding: 3px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+/* ── Inline ID links (list → get navigation) ──────────────────────── */
+.id-link-btn {
+  display: inline;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-family: var(--font-mono) !important;
+  font-size: inherit !important;
+  line-height: inherit;
+  transition: color 0.1s ease, border-color 0.1s ease;
 }
-.id-chip:hover {
-  background: rgba(0,212,255,0.15);
-  border-color: rgba(0,212,255,0.5);
-  box-shadow: 0 0 8px rgba(0,212,255,0.2);
-  color: #fff;
+.id-link-btn.jv { color: #86efac; }
+.id-link-btn.jn { color: #fbbf24; }
+.id-link-btn:hover {
+  color: var(--cyan) !important;
+  border-bottom-color: var(--cyan);
+  text-shadow: 0 0 6px rgba(0,212,255,0.5);
 }
 
 /* Error panel */

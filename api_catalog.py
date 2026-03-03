@@ -636,11 +636,12 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
         if label != str(value):
             label = f"{label}"   # show name only; value accessible via title
         chips.append({
-            "get_id":  get_id,
-            "param":   param_name,
-            "value":   str(value),
-            "label":   label[:60],
-            "title":   str(value),
+            "get_id":   get_id,
+            "param":    param_name,
+            "id_field": id_field,
+            "value":    str(value),
+            "label":    label[:60],
+            "title":    str(value),
         })
     return chips
 

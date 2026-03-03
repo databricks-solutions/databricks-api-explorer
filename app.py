@@ -58,18 +58,62 @@ _TOKEN_RE = re.compile(
 )
 
 
-def highlight_json_components(json_str: str) -> html.Pre:
-    parts = []
+def highlight_json_components(json_str: str, id_link_data: Optional[List[Dict]] = None) -> html.Pre:
+    """Syntax-highlight JSON. id_link_data chips make matching ID values inline-clickable."""
+    # Build lookup: (id_field_name, str_value) → chip
+    link_lookup: Dict = {}
+    if id_link_data:
+        for chip in id_link_data:
+            link_lookup[(chip["id_field"], str(chip["value"]))] = chip
+
+    link_counter = [0]   # mutable for closure; ensures unique button idx
+    parts: List = []
+    prev_key: Optional[str] = None
+
     for m in _TOKEN_RE.finditer(json_str):
         g = m.group
-        if g(1):   parts += [html.Span(g(1), className="jk"), g(2)]
-        elif g(3): parts.append(html.Span(g(3), className="jv"))
-        elif g(4): parts.append(html.Span(g(4), className="jn"))
-        elif g(5): parts.append(html.Span(g(5), className="jb"))
-        elif g(6): parts.append(html.Span(g(6), className="jbn"))
-        elif g(7): parts.append(html.Span(g(7), className="jp"))
-        elif g(8): parts.append(g(8))
-        else:      parts.append(m.group(0))
+        if g(1):
+            # key + colon consumed together by regex group 1+2
+            prev_key = g(1)[1:-1]          # strip quotes to get bare field name
+            parts += [html.Span(g(1), className="jk"), g(2)]
+        elif g(3):
+            raw = g(3)
+            val_str = g(3)[1:-1]           # strip surrounding quotes
+            chip = link_lookup.get((prev_key, val_str)) if prev_key else None
+            if chip:
+                idx = link_counter[0]; link_counter[0] += 1
+                parts.append(html.Button(
+                    raw,
+                    id={"type": "id-link", "idx": idx,
+                        "gid": chip["get_id"][:40],
+                        "par": chip["param"][:40],
+                        "val": val_str[:200]},
+                    n_clicks=0, className="id-link-btn jv",
+                ))
+            else:
+                parts.append(html.Span(raw, className="jv"))
+            prev_key = None
+        elif g(4):
+            num_str = g(4)
+            chip = link_lookup.get((prev_key, num_str)) if prev_key else None
+            if chip:
+                idx = link_counter[0]; link_counter[0] += 1
+                parts.append(html.Button(
+                    num_str,
+                    id={"type": "id-link", "idx": idx,
+                        "gid": chip["get_id"][:40],
+                        "par": chip["param"][:40],
+                        "val": num_str[:200]},
+                    n_clicks=0, className="id-link-btn jn",
+                ))
+            else:
+                parts.append(html.Span(num_str, className="jn"))
+            prev_key = None
+        elif g(5): parts.append(html.Span(g(5), className="jb"));  prev_key = None
+        elif g(6): parts.append(html.Span(g(6), className="jbn")); prev_key = None
+        elif g(7): parts.append(html.Span(g(7), className="jp")); prev_key = None  # punctuation resets context
+        elif g(8): parts.append(g(8))                        # whitespace: keep prev_key
+        else:      parts.append(m.group(0)); prev_key = None
     return html.Pre(parts, className="json-viewer")
 
 
@@ -109,20 +153,6 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                 item_count = f" · {len(v)} items"
                 break
 
-    chips_row = html.Div([
-        html.Span([html.I(className="bi bi-cursor-fill me-1"), "Click to open:"], className="chips-label"),
-        *[
-            html.Button(
-                chip["label"],
-                id={"type": "id-chip", "idx": i},
-                n_clicks=0,
-                className="id-chip",
-                title=chip["title"],
-            )
-            for i, chip in enumerate(chips)
-        ],
-    ], className="chips-row") if chips else None
-
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -132,8 +162,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(" [truncated]", className="truncation-notice") if truncated else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
-        chips_row,
-        html.Div(highlight_json_components(json_str), className="json-viewer-wrapper"),
+        html.Div(highlight_json_components(json_str, chips), className="json-viewer-wrapper"),
     ], className="response-container")
 
 
@@ -378,7 +407,6 @@ app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
-    dcc.Store(id="chips-meta", data=[]),
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
@@ -703,7 +731,6 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 # 10. Execute API call
 @app.callback(
     Output("response-container", "children"),
-    Output("chips-meta", "data"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -714,7 +741,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
-        return no_update, no_update
+        return no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -734,7 +761,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), []
+            return build_error_panel(f"Path parameter '{pp}' is required.")
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -743,60 +770,50 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), []
+            return build_error_panel(f"Invalid JSON body: {e}")
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), []
+        return build_error_panel("No auth token. Configure a connection in the user menu.")
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), []
+        return build_error_panel("No workspace host. Configure a connection in the user menu.")
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
         query_params=params if method == "GET" else None, body=body,
     )
     chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
-    return build_response_panel(result, chips), chips
+    return build_response_panel(result, chips)
 
 
-# 11. ID chip click — select the get endpoint and immediately execute it
+# 11. Inline ID link click — execute the linked Get endpoint
 @app.callback(
-    Output("selected-endpoint", "data", allow_duplicate=True),
-    Output({"type": "endpoint-btn", "id": ALL}, "className", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
-    Output("chips-meta", "data", allow_duplicate=True),
-    Input({"type": "id-chip", "idx": ALL}, "n_clicks"),
-    State("chips-meta", "data"),
-    State({"type": "endpoint-btn", "id": ALL}, "id"),
+    Input({"type": "id-link", "idx": ALL, "gid": ALL, "par": ALL, "val": ALL}, "n_clicks"),
     State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def handle_chip_click(n_clicks_list, chips_meta, btn_ids, conn_config):
+def handle_id_link_click(n_clicks_list, conn_config):
     from dash import callback_context as ctx
-    if not ctx.triggered or not chips_meta or not any(n_clicks_list):
-        return no_update, no_update, no_update, no_update
+    if not ctx.triggered or not any(n for n in n_clicks_list if n):
+        return no_update
     try:
-        idx = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["idx"]
+        comp_id = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])
     except (json.JSONDecodeError, KeyError, TypeError):
-        return no_update, no_update, no_update, no_update
-    if idx >= len(chips_meta):
-        return no_update, no_update, no_update, no_update
+        return no_update
 
-    chip = chips_meta[idx]
-    endpoint = get_endpoint_by_id(chip["get_id"])
+    get_id = comp_id.get("gid", "")
+    param_name = comp_id.get("par", "")
+    value = comp_id.get("val", "")
+    if not get_id or not param_name or value == "":
+        return no_update
+
+    endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update, no_update, no_update, no_update
+        return no_update
 
-    # Highlight the get endpoint in the sidebar
-    classnames = [
-        "endpoint-btn active" if b["id"] == chip["get_id"] else "endpoint-btn"
-        for b in btn_ids
-    ]
-
-    # Build path (handle path params vs query params)
     path = endpoint["path"]
     query_params: Dict[str, Any] = {}
-    param_name, value = chip["param"], chip["value"]
     if param_name in endpoint.get("path_params", []):
         path = path.replace(f"{{{param_name}}}", value)
     else:
@@ -804,16 +821,16 @@ def handle_chip_click(n_clicks_list, chips_meta, btn_ids, conn_config):
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return endpoint, classnames, build_error_panel("No auth token."), []
+        return build_error_panel("No auth token.")
     if not host:
-        return endpoint, classnames, build_error_panel("No workspace host."), []
+        return build_error_panel("No workspace host.")
 
     result = make_api_call(
         method=endpoint.get("method", "GET"),
         path=path, token=token, host=host,
         query_params=query_params or None,
     )
-    return endpoint, classnames, build_response_panel(result), []
+    return build_response_panel(result)
 
 
 # 12. Search filter
