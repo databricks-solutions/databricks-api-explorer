@@ -510,8 +510,9 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text):
     else:
         token = get_local_token()
         if not token:
+            from auth import DATABRICKS_PROFILE
             return build_error_panel(
-                f"Could not retrieve token from Databricks CLI profile '{__import__(\"auth\").DATABRICKS_PROFILE}'. "
+                f"Could not retrieve token from Databricks CLI profile '{DATABRICKS_PROFILE}'. "
                 "Check that the profile is configured and you are authenticated."
             ), False
 
