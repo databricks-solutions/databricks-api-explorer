@@ -362,6 +362,7 @@ app.layout = html.Div([
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
+    html.Div(id="db-footer-bar", className="db-footer-bar"),  # fixed lower-right bar
 
     html.Div([
         build_sidebar(),
@@ -377,10 +378,11 @@ app.layout = html.Div([
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 
-# 1. Init: populate topbar on page load or connection change
+# 1. Init: populate topbar and footer bar on page load or connection change
 @app.callback(
     Output("user-display", "children"),
     Output("host-display", "children"),
+    Output("db-footer-bar", "children"),
     Input("url", "pathname"),
     Input("conn-config", "data"),
 )
@@ -405,7 +407,24 @@ def init_on_load(_, conn_config):
             "Not connected",
             html.I(className="bi bi-chevron-down ms-1 small"),
         ], className="user-chip text-warning")
-    return user_el, host_label
+
+    # Footer bar: Databricks.com link + workspace URL link
+    workspace_display = (host or "").replace("https://", "")
+    footer_children = [
+        html.A(
+            [html.I(className="bi bi-box-arrow-up-right me-1"), "databricks.com"],
+            href="https://www.databricks.com",
+            target="_blank",
+        ),
+        html.Span("·", className="footer-sep"),
+        html.A(
+            workspace_display,
+            href=host,
+            target="_blank",
+        ) if host else html.Span("not connected", className="footer-sep"),
+    ]
+
+    return user_el, host_label, footer_children
 
 
 # 2. Toggle dropdown and populate identity info
