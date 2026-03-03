@@ -27,10 +27,10 @@ Three Python files do all the work. There is no database, no state beyond in-mem
 
 ### `app.py` — Dash layout + all callbacks
 The entire UI and all server-side logic live here. Key sections:
-- `highlight_json_components()` — pure-Python JSON tokenizer that builds `html.Span`/`html.Button` trees (no `dangerouslySetInnerHTML`). Accepts optional `id_link_data` to make ID field values inline-clickable.
-- `build_response_panel()` — assembles the response view; passes chips from `extract_chips()` to the JSON renderer for inline navigation links.
-- `build_param_form()` — generates type-aware parameter inputs from endpoint metadata.
-- Callbacks are numbered 1–12 in order; the callback graph in `README.md` is accurate.
+- `highlight_json_components()` — pure-Python JSON tokenizer that builds `html.Span`/`html.Button` trees (no `dangerouslySetInnerHTML`). Accepts optional `id_link_data` (chip list from `extract_chips`) to render ID field values as inline clickable `html.Button` elements.
+- `build_response_panel()` — assembles the response view; passes chips to the JSON renderer.
+- `build_param_form(endpoint, prefill=None)` — generates type-aware parameter inputs; `prefill` dict overrides the default value for named params (used when navigating via inline ID link).
+- Callbacks are numbered 1–12 (with 8b inserted between 8 and 9).
 
 ### `api_catalog.py` — endpoint definitions + chip extraction
 - `API_CATALOG` dict: all 15 categories and 45+ endpoints. Each endpoint has `id`, `method`, `path`, `params`, optional `path_params`, optional `body`.
@@ -50,9 +50,11 @@ The entire UI and all server-side logic live here. Key sections:
 
 **`version.txt` auto-increments** on every `import app` (via `version.py`). Don't be surprised when it bumps during development; it's intentional.
 
-**Dash 4.0.0 `allow_duplicate` constraint**: `allow_duplicate=True` only works when the target output is the *primary* (first) output of another callback. The `handle_id_link_click` callback uses `allow_duplicate=True` on `response-container.children` because `execute_api_call` owns it as its first output. Never add `allow_duplicate=True` to a secondary output — this causes a `KeyError: "Callback function not found for output '...'"` at runtime.
+**Dash 4.0.0 `allow_duplicate` constraint**: `allow_duplicate=True` only works when the target output is the *primary* (first) output of another callback. Never add `allow_duplicate=True` to a secondary output — this causes a `KeyError: "Callback function not found for output '...'"` at runtime. `handle_id_link_click` uses `allow_duplicate=True` on `selected-endpoint.data` (first output of `select_endpoint`) and `response-container.children` (first output of `execute_api_call`), both safe.
 
-**Inline ID links**: When a list API (e.g., List Jobs) succeeds, `extract_chips()` builds a chip list. `highlight_json_components()` receives this as `id_link_data` and renders matching field values (e.g., every `job_id` value) as `html.Button` elements with class `id-link-btn`. The button's component ID embeds `gid` (get endpoint ID), `par` (param name), and `val` (the ID value). `handle_id_link_click` reads these directly from `ctx.triggered` — no separate store is needed.
+**Sidebar button highlighting is decoupled from `select_endpoint`**: `select_endpoint` (callback 8) only writes `selected-endpoint.data`. A separate `sync_active_button` callback (8b) watches `selected-endpoint` and derives `endpoint-btn.className` from it. This means any callback that updates `selected-endpoint` with `allow_duplicate=True` automatically gets correct sidebar highlighting for free, without needing `allow_duplicate` on the pattern-matching className output.
+
+**Inline ID links + `_prefill` flow**: When a list API succeeds, `extract_chips()` builds a chip list. `highlight_json_components()` renders matching field values as `html.Button` elements with component IDs embedding `gid`, `par`, `val`. Clicking one fires `handle_id_link_click`, which: (1) calls the Get API and updates `response-container`; (2) writes `{...endpoint, "_prefill": {param_name: value}}` to `selected-endpoint`. That store change triggers both `sync_active_button` (highlights the Get button) and `render_endpoint_detail` (reads `_prefill`, calls `build_param_form(endpoint, prefill)` with the ID pre-filled).
 
 **Default CLI profile** is hardcoded as `DATABRICKS_PROFILE = "guido-demo-azure"` in `auth.py`. Change this when working with a different workspace.
 
