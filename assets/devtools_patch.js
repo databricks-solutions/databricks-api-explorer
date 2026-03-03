@@ -40,21 +40,21 @@
     a.rel = 'noopener noreferrer';
     if (title) a.title = title;
     a.style.cssText = [
-      'color:#00d4ff',
+      'color:#7f4bc4',
       'text-decoration:none',
       'font-size:11px',
-      'font-family:JetBrains Mono,Fira Code,monospace',
+      'font-family:Verdana,sans-serif',
       'padding:0 8px',
-      'opacity:0.75',
       'white-space:nowrap',
       'cursor:pointer',
-      'transition:opacity 0.15s ease',
+      'transition:color 0.2s ease',
       'display:inline-flex',
       'align-items:center',
+      'box-shadow:0 1px #d3dae6',
     ].join(';');
     a.textContent = label;
-    a.addEventListener('mouseenter', function () { a.style.opacity = '1'; });
-    a.addEventListener('mouseleave', function () { a.style.opacity = '0.75'; });
+    a.addEventListener('mouseenter', function () { a.style.color = '#5806c4'; });
+    a.addEventListener('mouseleave', function () { a.style.color = '#7f4bc4'; });
     return a;
   }
 
@@ -62,7 +62,7 @@
     var s = document.createElement('span');
     s.id = id;
     s.textContent = '|';
-    s.style.cssText = 'color:#4b5563;font-size:11px;user-select:none;';
+    s.style.cssText = 'color:#d3dae6;font-size:11px;user-select:none;';
     return s;
   }
 
