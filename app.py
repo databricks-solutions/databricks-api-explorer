@@ -17,7 +17,7 @@ import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, dcc, html, no_update
 from flask import request as flask_request
 
-from api_catalog import API_CATALOG, ENDPOINT_MAP, TOTAL_CATEGORIES, TOTAL_ENDPOINTS, get_endpoint_by_id
+from api_catalog import API_CATALOG, ENDPOINT_MAP, TOTAL_CATEGORIES, TOTAL_ENDPOINTS, extract_chips, get_endpoint_by_id
 from auth import (
     DATABRICKS_PROFILE,
     IS_DATABRICKS_APP,
@@ -88,7 +88,7 @@ def _resolve_conn(conn_config):
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
-def build_response_panel(result: Dict[str, Any]) -> html.Div:
+def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -> html.Div:
     code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
     if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
     elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
@@ -109,6 +109,20 @@ def build_response_panel(result: Dict[str, Any]) -> html.Div:
                 item_count = f" · {len(v)} items"
                 break
 
+    chips_row = html.Div([
+        html.Span([html.I(className="bi bi-cursor-fill me-1"), "Click to open:"], className="chips-label"),
+        *[
+            html.Button(
+                chip["label"],
+                id={"type": "id-chip", "idx": i},
+                n_clicks=0,
+                className="id-chip",
+                title=chip["title"],
+            )
+            for i, chip in enumerate(chips)
+        ],
+    ], className="chips-row") if chips else None
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -118,6 +132,7 @@ def build_response_panel(result: Dict[str, Any]) -> html.Div:
             html.Span(" [truncated]", className="truncation-notice") if truncated else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
+        chips_row,
         html.Div(highlight_json_components(json_str), className="json-viewer-wrapper"),
     ], className="response-container")
 
@@ -363,6 +378,7 @@ app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
+    dcc.Store(id="chips-meta", data=[]),
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
@@ -687,6 +703,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 # 10. Execute API call
 @app.callback(
     Output("response-container", "children"),
+    Output("chips-meta", "data"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -697,7 +714,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
-        return no_update
+        return no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -717,7 +734,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required.")
+            return build_error_panel(f"Path parameter '{pp}' is required."), []
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -726,22 +743,80 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}")
+            return build_error_panel(f"Invalid JSON body: {e}"), []
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu.")
+        return build_error_panel("No auth token. Configure a connection in the user menu."), []
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu.")
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), []
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
         query_params=params if method == "GET" else None, body=body,
     )
-    return build_response_panel(result)
+    chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
+    return build_response_panel(result, chips), chips
 
 
-# 11. Search filter
+# 11. ID chip click — select the get endpoint and immediately execute it
+@app.callback(
+    Output("selected-endpoint", "data", allow_duplicate=True),
+    Output({"type": "endpoint-btn", "id": ALL}, "className", allow_duplicate=True),
+    Output("response-container", "children", allow_duplicate=True),
+    Output("chips-meta", "data", allow_duplicate=True),
+    Input({"type": "id-chip", "idx": ALL}, "n_clicks"),
+    State("chips-meta", "data"),
+    State({"type": "endpoint-btn", "id": ALL}, "id"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def handle_chip_click(n_clicks_list, chips_meta, btn_ids, conn_config):
+    from dash import callback_context as ctx
+    if not ctx.triggered or not chips_meta or not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update
+    try:
+        idx = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["idx"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return no_update, no_update, no_update, no_update
+    if idx >= len(chips_meta):
+        return no_update, no_update, no_update, no_update
+
+    chip = chips_meta[idx]
+    endpoint = get_endpoint_by_id(chip["get_id"])
+    if not endpoint:
+        return no_update, no_update, no_update, no_update
+
+    # Highlight the get endpoint in the sidebar
+    classnames = [
+        "endpoint-btn active" if b["id"] == chip["get_id"] else "endpoint-btn"
+        for b in btn_ids
+    ]
+
+    # Build path (handle path params vs query params)
+    path = endpoint["path"]
+    query_params: Dict[str, Any] = {}
+    param_name, value = chip["param"], chip["value"]
+    if param_name in endpoint.get("path_params", []):
+        path = path.replace(f"{{{param_name}}}", value)
+    else:
+        query_params[param_name] = value
+
+    host, token = _resolve_conn(conn_config)
+    if not token:
+        return endpoint, classnames, build_error_panel("No auth token."), []
+    if not host:
+        return endpoint, classnames, build_error_panel("No workspace host."), []
+
+    result = make_api_call(
+        method=endpoint.get("method", "GET"),
+        path=path, token=token, host=host,
+        query_params=query_params or None,
+    )
+    return endpoint, classnames, build_response_panel(result), []
+
+
+# 12. Search filter
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "style"),
     Input("search-input", "value"),

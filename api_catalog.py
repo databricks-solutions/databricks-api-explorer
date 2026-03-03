@@ -586,6 +586,65 @@ API_CATALOG: Dict[str, Any] = {
 }
 
 
+# ── List → Get link map ────────────────────────────────────────────────────────
+# Format: list_endpoint_id → (get_endpoint_id, list_key, id_field, param_name, label_field)
+#   list_key   — top-level key in the response that holds the array of items
+#   id_field   — field within each item that contains the primary identifier
+#   param_name — parameter name expected by the get endpoint (None if no get endpoint)
+#   label_field — optional field for a human-friendly chip label (dotted path supported)
+LIST_TO_GET: Dict[str, Any] = {
+    "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name"),
+    "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name"),
+    "jobs-runs-list":             ("jobs-runs-get",          "runs",           "run_id",        "run_id",        None),
+    "sql-warehouses-list":        ("sql-warehouses-get",     "warehouses",     "id",            "id",            "name"),
+    "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     None),
+    "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name"),
+    "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
+    "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name"),
+    "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
+    "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
+}
+
+
+def _nested_get(obj: Dict, dotted_key: str):
+    """Get a value from a dict using a dotted key like 'settings.name'."""
+    for part in dotted_key.split("."):
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(part)
+    return obj
+
+
+def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
+    """Extract clickable ID chips from a list API response."""
+    mapping = LIST_TO_GET.get(endpoint_id)
+    if not mapping:
+        return []
+    get_id, list_key, id_field, param_name, label_field = mapping
+    if not get_id or not param_name:
+        return []
+    items = data.get(list_key, []) if isinstance(data, dict) else []
+    if not isinstance(items, list):
+        return []
+    chips = []
+    for item in items[:60]:
+        value = item.get(id_field)
+        if value is None:
+            continue
+        label = _nested_get(item, label_field) if label_field else None
+        label = str(label) if label else str(value)
+        if label != str(value):
+            label = f"{label}"   # show name only; value accessible via title
+        chips.append({
+            "get_id":  get_id,
+            "param":   param_name,
+            "value":   str(value),
+            "label":   label[:60],
+            "title":   str(value),
+        })
+    return chips
+
+
 def get_endpoint_by_id(endpoint_id: str) -> Dict[str, Any]:
     """Find an endpoint by its ID across all categories."""
     for category_name, category in API_CATALOG.items():
