@@ -26,6 +26,7 @@ from auth import (
     get_current_user_info,
     get_host,
     get_local_token,
+    get_workspace_name,
     make_api_call,
     resolve_local_connection,
 )
@@ -220,7 +221,10 @@ TOPBAR = dbc.Navbar(
         html.Div([
             html.Span(VERSION, className="version-badge me-2"),
             _MODE_BADGE,
-            html.Span(id="host-display", className="host-display ms-3"),
+            html.Div([
+                html.Span(id="workspace-name-display", className="workspace-name"),
+                html.Span(id="host-display", className="host-display"),
+            ], className="workspace-info ms-3"),
             html.Button(
                 html.Span(id="user-display"),
                 id="user-btn",
@@ -381,6 +385,7 @@ app.layout = html.Div([
 @app.callback(
     Output("user-display", "children"),
     Output("host-display", "children"),
+    Output("workspace-name-display", "children"),
     Input("url", "pathname"),
     Input("conn-config", "data"),
 )
@@ -391,6 +396,7 @@ def init_on_load(_, conn_config):
         className="text-muted",
     ) if host else html.Span("(not connected)", className="text-warning")
 
+    ws_name = None
     if token and host:
         info = get_current_user_info(token, host)
         name = info.get("display_name") or info.get("user_name") or "Unknown"
@@ -399,6 +405,7 @@ def init_on_load(_, conn_config):
             name,
             html.I(className="bi bi-chevron-down ms-1 small"),
         ], className="user-chip")
+        ws_name = get_workspace_name(token, host)
     else:
         user_el = html.Span([
             html.I(className="bi bi-person-circle me-1"),
@@ -406,7 +413,12 @@ def init_on_load(_, conn_config):
             html.I(className="bi bi-chevron-down ms-1 small"),
         ], className="user-chip text-warning")
 
-    return user_el, host_label
+    ws_name_el = html.Span(
+        [html.I(className="bi bi-building me-1"), ws_name],
+        className="workspace-name-text"
+    ) if ws_name else None
+
+    return user_el, host_label, ws_name_el
 
 
 # 2. Toggle dropdown and populate identity info

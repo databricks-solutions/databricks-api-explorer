@@ -107,6 +107,38 @@ def get_local_token() -> Optional[str]:
         return None
 
 
+# ── Workspace Info ────────────────────────────────────────────────────────────
+
+def get_workspace_name(token: str, host: str) -> Optional[str]:
+    """Return the human-readable workspace name via the best available API.
+
+    Tries, in order:
+      1. GET /api/2.0/workspace-conf?keys=workspaceName  (may be set by admins)
+      2. GET /api/2.1/unity-catalog/metastore_summary    (metastore name ≈ workspace)
+      3. Parse the hostname for a display-friendly label
+    """
+    # 1 — workspace conf
+    r = make_api_call("GET", "/api/2.0/workspace-conf", token, host,
+                      query_params={"keys": "workspaceName"})
+    if r["success"]:
+        name = (r["data"] or {}).get("workspaceName", "")
+        if name:
+            return name
+
+    # 2 — Unity Catalog metastore summary
+    r = make_api_call("GET", "/api/2.1/unity-catalog/metastore_summary", token, host)
+    if r["success"]:
+        name = (r["data"] or {}).get("name", "")
+        if name:
+            return name
+
+    # 3 — parse hostname: "adb-123.azuredatabricks.net" → "adb-123"
+    #     custom domains:  "myco.databricks.com"        → "myco"
+    import re as _re
+    m = _re.match(r"https?://([^./]+)", host)
+    return m.group(1) if m else None
+
+
 # ── User Info ─────────────────────────────────────────────────────────────────
 
 def get_current_user_info(token: str, host: str) -> Dict[str, Any]:
