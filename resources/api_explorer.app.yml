@@ -1,0 +1,6 @@
+resources:
+  apps:
+    api_explorer:
+      name: "databricks-api-explorer"
+      description: "Ultra-modern Databricks Workspace API Explorer with OBO authentication"
+      source_code_path: ..

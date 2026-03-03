@@ -1,0 +1,7 @@
+command:
+  - "python"
+  - "app.py"
+
+# No valueFrom entries needed — Databricks Apps auto-injects:
+#   DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET
+# The OBO user token is forwarded via the x-forwarded-access-token header.

@@ -1,0 +1,12 @@
+bundle:
+  name: databricks-api-explorer
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: guido-demo-azure
