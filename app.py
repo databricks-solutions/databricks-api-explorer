@@ -175,10 +175,11 @@ def build_error_panel(message: str) -> html.Div:
     ], className="response-container")
 
 
-def build_param_form(endpoint: Dict) -> html.Div:
+def build_param_form(endpoint: Dict, prefill: Optional[Dict] = None) -> html.Div:
     params: List[Dict] = endpoint.get("params", [])
     method: str = endpoint.get("method", "GET")
     body_template: Optional[str] = endpoint.get("body")
+    prefill = prefill or {}
     rows = []
 
     for p in params:
@@ -191,7 +192,7 @@ def build_param_form(endpoint: Dict) -> html.Div:
             id={"type": "param-input", "name": p["name"]},
             type="number" if p["type"] == "integer" else "text",
             placeholder=p.get("description", ""),
-            value=p.get("default", "") or "",
+            value=str(prefill[p["name"]]) if p["name"] in prefill else (p.get("default", "") or ""),
             className="param-input font-mono",
         )
         rows.append(html.Div([label_row, html.Div(p.get("description", ""), className="param-desc"), inp], className="param-row"))
@@ -672,10 +673,9 @@ def reauth(n_clicks, profile):
         return html.Span(str(e), className="text-danger")
 
 
-# 8. Select endpoint
+# 8. Select endpoint (sidebar button click → store)
 @app.callback(
     Output("selected-endpoint", "data"),
-    Output({"type": "endpoint-btn", "id": ALL}, "className"),
     Input({"type": "endpoint-btn", "id": ALL}, "n_clicks"),
     State({"type": "endpoint-btn", "id": ALL}, "id"),
     prevent_initial_call=True,
@@ -683,16 +683,27 @@ def reauth(n_clicks, profile):
 def select_endpoint(n_clicks_list, btn_ids):
     from dash import callback_context as ctx
     if not ctx.triggered:
-        return no_update, no_update
+        return no_update
     try:
         clicked_id = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["id"]
     except (json.JSONDecodeError, KeyError):
-        return no_update, no_update
+        return no_update
     endpoint = get_endpoint_by_id(clicked_id)
     if not endpoint:
-        return no_update, no_update
-    classnames = ["endpoint-btn active" if b["id"] == clicked_id else "endpoint-btn" for b in btn_ids]
-    return endpoint, classnames
+        return no_update
+    return endpoint
+
+
+# 8b. Sync sidebar button highlight whenever selected-endpoint changes
+@app.callback(
+    Output({"type": "endpoint-btn", "id": ALL}, "className"),
+    Input("selected-endpoint", "data"),
+    State({"type": "endpoint-btn", "id": ALL}, "id"),
+    prevent_initial_call=True,
+)
+def sync_active_button(endpoint, btn_ids):
+    active_id = (endpoint or {}).get("id", "")
+    return ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
 
 
 # 9. Render endpoint detail
@@ -705,6 +716,7 @@ def select_endpoint(n_clicks_list, btn_ids):
 def render_endpoint_detail(endpoint: Optional[Dict]):
     if not endpoint:
         return WELCOME, "form-panel"
+    prefill = endpoint.get("_prefill", {})
     cat_color = endpoint.get("category_color", "#00d4ff")
     content = html.Div([
         html.Div([
@@ -718,7 +730,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
         html.Div(endpoint.get("description", ""), className="endpoint-desc"),
         html.Hr(className="divider"),
         html.Div("Parameters", className="param-section-title"),
-        build_param_form(endpoint),
+        build_param_form(endpoint, prefill),
         html.Hr(className="divider"),
         html.Button(
             [html.I(className="bi bi-play-fill me-2"), "Execute"],
@@ -786,8 +798,9 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     return build_response_panel(result, chips)
 
 
-# 11. Inline ID link click — execute the linked Get endpoint
+# 11. Inline ID link click — switch to Get endpoint, pre-fill form, execute
 @app.callback(
+    Output("selected-endpoint", "data", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
     Input({"type": "id-link", "idx": ALL, "gid": ALL, "par": ALL, "val": ALL}, "n_clicks"),
     State("conn-config", "data"),
@@ -796,21 +809,21 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
 def handle_id_link_click(n_clicks_list, conn_config):
     from dash import callback_context as ctx
     if not ctx.triggered or not any(n for n in n_clicks_list if n):
-        return no_update
+        return no_update, no_update
     try:
         comp_id = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])
     except (json.JSONDecodeError, KeyError, TypeError):
-        return no_update
+        return no_update, no_update
 
     get_id = comp_id.get("gid", "")
     param_name = comp_id.get("par", "")
     value = comp_id.get("val", "")
     if not get_id or not param_name or value == "":
-        return no_update
+        return no_update, no_update
 
     endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update
+        return no_update, no_update
 
     path = endpoint["path"]
     query_params: Dict[str, Any] = {}
@@ -821,16 +834,18 @@ def handle_id_link_click(n_clicks_list, conn_config):
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token.")
+        return no_update, build_error_panel("No auth token.")
     if not host:
-        return build_error_panel("No workspace host.")
+        return no_update, build_error_panel("No workspace host.")
 
     result = make_api_call(
         method=endpoint.get("method", "GET"),
         path=path, token=token, host=host,
         query_params=query_params or None,
     )
-    return build_response_panel(result)
+    # Embed prefill so render_endpoint_detail pre-populates the param field
+    endpoint_with_prefill = {**endpoint, "_prefill": {param_name: value}}
+    return endpoint_with_prefill, build_response_panel(result)
 
 
 # 12. Search filter
