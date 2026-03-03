@@ -16,8 +16,18 @@ import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, dcc, html, no_update
 from flask import request as flask_request
 
+import subprocess
+
 from api_catalog import API_CATALOG, ENDPOINT_MAP, TOTAL_CATEGORIES, TOTAL_ENDPOINTS, get_endpoint_by_id
-from auth import IS_DATABRICKS_APP, get_current_user_info, get_host, get_local_token, make_api_call
+from auth import (
+    DATABRICKS_PROFILE,
+    IS_DATABRICKS_APP,
+    _get_local_config,
+    get_current_user_info,
+    get_host,
+    get_local_token,
+    make_api_call,
+)
 from version import VERSION
 
 # ── Dash init ─────────────────────────────────────────────────────────────────
@@ -229,11 +239,178 @@ TOPBAR = dbc.Navbar(
             html.Span(VERSION, className="version-badge me-2"),
             _MODE_BADGE,
             html.Span(id="host-display", className="host-display ms-3"),
-            html.Span(id="user-display", className="user-chip ms-3"),
+            # Clickable user chip — opens auth modal
+            html.Button(
+                html.Span(id="user-display"),
+                id="user-btn",
+                n_clicks=0,
+                className="user-btn-trigger ms-3",
+                title="Click to view auth details",
+            ),
         ], className="d-flex align-items-center"),
     ], fluid=True),
     color="dark", dark=True, className="topbar",
 )
+
+# ── Auth Info Modal ───────────────────────────────────────────────────────────
+
+def _auth_info_row(label: str, value: str) -> html.Div:
+    return html.Div([
+        html.Span(label, className="auth-info-label"),
+        html.Span(value or "—", className="auth-info-value font-mono"),
+    ], className="auth-info-row")
+
+
+def build_auth_modal_body() -> html.Div:
+    """Fetch live auth info and render the modal body."""
+    host = get_host()
+
+    if IS_DATABRICKS_APP:
+        token = flask_request.headers.get("x-forwarded-access-token")
+        auth_mode = "Databricks App (OBO)"
+        auth_type = "on-behalf-of"
+        profile_name = "N/A (managed by platform)"
+    else:
+        token = get_local_token()
+        auth_mode = "Local (CLI profile)"
+        profile_name = DATABRICKS_PROFILE
+        try:
+            cfg = _get_local_config()
+            auth_type = getattr(cfg, "auth_type", None) or "unknown"
+        except Exception:
+            auth_type = "unknown"
+
+    # Fetch full SCIM /Me profile
+    scim_data: Dict = {}
+    if token and host:
+        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+        if r["success"]:
+            scim_data = r["data"]
+
+    display_name = scim_data.get("displayName", "Unknown")
+    username = scim_data.get("userName", "")
+    active = scim_data.get("active", True)
+    emails: List[Dict] = scim_data.get("emails", [])
+    groups: List[Dict] = scim_data.get("groups", [])
+    entitlements: List[Dict] = scim_data.get("entitlements", [])
+    roles: List[Dict] = scim_data.get("roles", [])
+    user_id = scim_data.get("id", "")
+
+    primary_email = next((e["value"] for e in emails if e.get("primary")), emails[0]["value"] if emails else "")
+    avatar_letter = (display_name[0] if display_name and display_name != "Unknown" else username[0] if username else "?").upper()
+
+    auth_type_labels = {
+        "pat": "Personal Access Token",
+        "oauth-m2m": "OAuth M2M (Client Credentials)",
+        "external-browser": "OAuth (Browser / SSO)",
+        "azure-client-secret": "Azure Service Principal",
+        "azure-msi": "Azure Managed Identity",
+        "on-behalf-of": "On-Behalf-Of (OBO)",
+        "unknown": "Unknown",
+    }
+    auth_type_display = auth_type_labels.get(auth_type, auth_type)
+
+    return html.Div([
+        # ── Profile header ────────────────────────────────────────────
+        html.Div([
+            html.Div(avatar_letter, className="auth-avatar"),
+            html.Div([
+                html.Div(display_name, className="auth-display-name"),
+                html.Div(username, className="auth-username"),
+                html.Div([
+                    dbc.Badge(
+                        [html.I(className="bi bi-circle-fill me-1"), "Active" if active else "Inactive"],
+                        color="success" if active else "danger",
+                        className="auth-active-badge",
+                    ),
+                ], className="mt-1"),
+            ]),
+        ], className="auth-profile-header"),
+
+        html.Hr(className="divider"),
+
+        # ── Auth details ─────────────────────────────────────────────
+        html.Div("Authentication", className="auth-section-title"),
+        html.Div([
+            _auth_info_row("Mode", auth_mode),
+            _auth_info_row("Auth type", auth_type_display),
+            _auth_info_row("Workspace", host.replace("https://", "")),
+            _auth_info_row("Profile", profile_name),
+            _auth_info_row("User ID", user_id),
+            _auth_info_row("Username", username),
+            _auth_info_row("Email", primary_email),
+        ], className="auth-info-table"),
+
+        # ── All emails ────────────────────────────────────────────────
+        html.Div([
+            html.Hr(className="divider"),
+            html.Div("Email Addresses", className="auth-section-title"),
+            html.Div([
+                html.Div([
+                    html.Span(e.get("value", ""), className="font-mono small"),
+                    dbc.Badge(e.get("type", ""), color="secondary", className="ms-2 small"),
+                    dbc.Badge("primary", color="info", className="ms-1 small") if e.get("primary") else None,
+                ], className="mb-1")
+                for e in emails
+            ]) if emails else html.Div("—", className="text-muted small"),
+        ]) if emails else None,
+
+        # ── Groups ───────────────────────────────────────────────────
+        html.Div([
+            html.Hr(className="divider"),
+            html.Div(f"Groups ({len(groups)})", className="auth-section-title"),
+            html.Div([
+                dbc.Badge(g.get("display", g.get("value", "?")), color="secondary", className="me-1 mb-1 auth-group-badge")
+                for g in groups[:30]
+            ]) if groups else html.Div("No groups", className="text-muted small"),
+            html.Div(f"… and {len(groups) - 30} more", className="text-muted small mt-1") if len(groups) > 30 else None,
+        ]),
+
+        # ── Entitlements & roles ──────────────────────────────────────
+        html.Div([
+            html.Hr(className="divider"),
+            html.Div("Entitlements & Roles", className="auth-section-title"),
+            html.Div([
+                dbc.Badge(e.get("value", "?"), color="info", className="me-1 mb-1")
+                for e in entitlements + roles
+            ]) if (entitlements or roles) else html.Div("None", className="text-muted small"),
+        ]),
+
+        # ── Re-auth (local only) ──────────────────────────────────────
+        html.Div([
+            html.Hr(className="divider"),
+            html.Div("Re-authenticate", className="auth-section-title"),
+            html.P(
+                f"Trigger a new SSO login for profile '{DATABRICKS_PROFILE}'. "
+                "A browser window will open — complete the login, then refresh.",
+                className="text-muted small mb-3",
+            ),
+            html.Div([
+                html.Button(
+                    [html.I(className="bi bi-arrow-repeat me-2"), "Re-authenticate with SSO"],
+                    id="reauth-btn",
+                    n_clicks=0,
+                    className="reauth-btn",
+                ),
+                html.Div(id="reauth-status", className="mt-2"),
+            ]),
+            html.Div([
+                html.Span("Manual command:", className="text-muted small me-2"),
+                html.Code(
+                    f"databricks auth login --profile {DATABRICKS_PROFILE}",
+                    className="font-mono small auth-cmd",
+                ),
+            ], className="mt-3"),
+        ]) if not IS_DATABRICKS_APP else html.Div([
+            html.Hr(className="divider"),
+            html.Div("Re-authenticate", className="auth-section-title"),
+            html.P(
+                "Token refresh is managed automatically by Databricks Apps via OBO. "
+                "No manual re-authentication is required.",
+                className="text-muted small",
+            ),
+        ]),
+    ], className="auth-modal-body")
 
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
 WELCOME = html.Div([
@@ -261,10 +438,24 @@ _RESPONSE_EMPTY = html.Div([
     html.Div("Select an endpoint and click Execute"),
 ], className="response-empty")
 
+# ── Auth Modal component ──────────────────────────────────────────────────────
+AUTH_MODAL = dbc.Modal([
+    dbc.ModalHeader(
+        html.Div([
+            html.Div([html.I(className="bi bi-shield-lock me-2"), "Identity & Auth"], className="modal-title-text"),
+        ]),
+        close_button=True,
+        className="auth-modal-header",
+    ),
+    dbc.ModalBody(html.Div(id="auth-modal-body"), className="auth-modal-body-wrap"),
+], id="auth-modal", is_open=False, size="lg", scrollable=True, className="auth-modal")
+
+
 # Static layout — both panels always in DOM for reliable callback targeting.
 app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
+    AUTH_MODAL,
 
     TOPBAR,
 
@@ -303,11 +494,62 @@ def init_on_load(_):
     if token and host:
         info = get_current_user_info(token, host)
         name = info.get("display_name") or info.get("user_name") or "Unknown"
-        user_el = html.Span([html.I(className="bi bi-person-circle me-1"), name], className="user-chip")
+        user_el = html.Span([
+            html.I(className="bi bi-person-circle me-1"),
+            name,
+            html.I(className="bi bi-chevron-down ms-1 small"),
+        ], className="user-chip")
     else:
-        user_el = html.Span("Not authenticated", className="text-warning small")
+        user_el = html.Span([
+            html.I(className="bi bi-person-circle me-1"),
+            "Not authenticated",
+        ], className="user-chip text-warning")
 
     return user_el, host_label
+
+
+@app.callback(
+    Output("auth-modal", "is_open"),
+    Output("auth-modal-body", "children"),
+    Input("user-btn", "n_clicks"),
+    State("auth-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_auth_modal(n_clicks, is_open):
+    if not n_clicks:
+        return no_update, no_update
+    if is_open:
+        return False, no_update
+    return True, build_auth_modal_body()
+
+
+@app.callback(
+    Output("reauth-status", "children"),
+    Input("reauth-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def reauth(n_clicks):
+    if not n_clicks:
+        return no_update
+    try:
+        subprocess.Popen(
+            ["databricks", "auth", "login", "--profile", DATABRICKS_PROFILE],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return html.Div([
+            html.I(className="bi bi-check-circle-fill me-2 text-success"),
+            "Browser opened — complete the SSO login, then ",
+            html.A("refresh the page", href="/", className="text-info"),
+            " to apply the new token.",
+        ], className="small")
+    except FileNotFoundError:
+        return html.Div([
+            html.I(className="bi bi-x-circle-fill me-2 text-danger"),
+            "Databricks CLI not found. Install it and run the command below manually.",
+        ], className="small text-danger")
+    except Exception as exc:
+        return html.Div(str(exc), className="small text-danger")
 
 
 @app.callback(

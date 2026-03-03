@@ -23,7 +23,7 @@ DATABRICKS_PROFILE = "guido-demo-azure"
 
 @lru_cache(maxsize=1)
 def _get_local_config():
-    """Lazy-load local SDK Config using the CLI profile."""
+    """Lazy-load local SDK Config using the CLI profile (also exported for auth modal)."""
     from databricks.sdk.core import Config  # noqa: PLC0415
     return Config(profile=DATABRICKS_PROFILE)
 
