@@ -758,11 +758,11 @@ body {
 .badge { letter-spacing: 0.02em; }
 .navbar-brand { text-decoration: none !important; }
 
-/* ── Hide Plotly Cloud link in Dash debug panel ───────────────────── */
-a[href*="plot.ly"],
-a[href*="plotly.com"],
-.dash-debug-menu a[href*="plot"],
-.dash-debug-menu__button[href] {
+/* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */
+/* The PlotlyCloud button is the only .dash-debug-menu__button without an id */
+.dash-debug-menu__button:not([id]),
+.plotly-cloud-modal-overlay,
+.plotly-cloud-modal-content {
   display: none !important;
 }
 
