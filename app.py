@@ -238,14 +238,13 @@ TOPBAR = dbc.Navbar(
 # Always in DOM, shown/hidden via style. Positioned fixed below topbar right edge.
 
 def _profile_section():
-    profiles = get_cli_profiles()
-    options = [{"label": p, "value": p} for p in profiles]
+    # Options are populated dynamically via toggle_dropdown callback on each open
     return html.Div([
         html.Label("Profile", className="conn-label"),
         dbc.Select(
             id="profile-select",
-            options=options,
-            value=DATABRICKS_PROFILE if DATABRICKS_PROFILE in profiles else (profiles[0] if profiles else ""),
+            options=[],
+            value="",
             className="conn-select",
         ),
         html.Div(id="profile-auth-type", className="conn-hint mt-1"),
@@ -420,6 +419,7 @@ def init_on_load(_, conn_config):
     Output("popup-groups", "children"),
     Output("conn-mode-radio", "value"),
     Output("profile-select", "value"),
+    Output("profile-select", "options"),
     Input("user-btn", "n_clicks"),
     State("user-dropdown", "style"),
     State("conn-config", "data"),
@@ -428,10 +428,17 @@ def init_on_load(_, conn_config):
 def toggle_dropdown(n_clicks, current_style, conn_config):
     # Close if already open
     if current_style and current_style.get("display") != "none":
-        return {"display": "none"}, *([no_update] * 7)
+        return {"display": "none"}, *([no_update] * 9)
 
     conn_config = conn_config or _DEFAULT_CONN
     host, token = _resolve_conn(conn_config)
+
+    # Refresh profile list from disk every time the dropdown opens
+    profiles = get_cli_profiles()
+    profile_options = [{"label": p, "value": p} for p in profiles]
+    current_profile = conn_config.get("profile", DATABRICKS_PROFILE)
+    if current_profile not in profiles and profiles:
+        current_profile = profiles[0]
 
     scim: Dict = {}
     if token and host:
@@ -496,7 +503,8 @@ def toggle_dropdown(n_clicks, current_style, conn_config):
         auth_details,
         groups_el,
         conn_config.get("mode", "profile"),
-        conn_config.get("profile", DATABRICKS_PROFILE),
+        current_profile,
+        profile_options,
     )
 
 

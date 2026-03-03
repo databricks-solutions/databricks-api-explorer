@@ -22,14 +22,28 @@ DATABRICKS_PROFILE = "guido-demo-azure"
 # ── CLI Profile discovery ──────────────────────────────────────────────────────
 
 def get_cli_profiles() -> List[str]:
-    """Read all Databricks CLI profile names from ~/.databrickscfg."""
+    """Read all Databricks CLI profile names from ~/.databrickscfg.
+
+    Parses section headers directly so that ALL profiles (including DEFAULT
+    and any that configparser would otherwise merge/skip) are returned.
+    """
     path = os.path.expanduser("~/.databrickscfg")
     if not os.path.exists(path):
         return [DATABRICKS_PROFILE]
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    sections = cfg.sections()
-    return sections if sections else [DATABRICKS_PROFILE]
+
+    profiles: List[str] = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    name = stripped[1:-1].strip()
+                    if name:
+                        profiles.append(name)
+    except Exception:
+        pass
+
+    return profiles if profiles else [DATABRICKS_PROFILE]
 
 
 # ── Connection resolution ──────────────────────────────────────────────────────
