@@ -3,12 +3,13 @@ Databricks API Explorer
 Ultra-modern Databricks workspace API explorer built with Dash.
 
 Run modes:
-  Local        → auth via Databricks CLI profile (SSO / OAuth / PAT)
+  Local        → auth via Databricks CLI profile (SSO / OAuth / PAT) or custom URL
   Databricks App → auth via OBO (x-forwarded-access-token header)
 """
 
 import json
 import re
+import subprocess
 from typing import Any, Dict, List, Optional
 
 import dash
@@ -16,48 +17,47 @@ import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, dcc, html, no_update
 from flask import request as flask_request
 
-import subprocess
-
 from api_catalog import API_CATALOG, ENDPOINT_MAP, TOTAL_CATEGORIES, TOTAL_ENDPOINTS, get_endpoint_by_id
 from auth import (
     DATABRICKS_PROFILE,
     IS_DATABRICKS_APP,
     _get_local_config,
+    get_cli_profiles,
     get_current_user_info,
     get_host,
     get_local_token,
     make_api_call,
+    resolve_local_connection,
 )
 from version import VERSION
 
 # ── Dash init ─────────────────────────────────────────────────────────────────
 app = dash.Dash(
     __name__,
-    external_stylesheets=[
-        dbc.themes.CYBORG,
-        dbc.icons.BOOTSTRAP,
-    ],
+    external_stylesheets=[dbc.themes.CYBORG, dbc.icons.BOOTSTRAP],
     title="Databricks API Explorer",
     suppress_callback_exceptions=True,
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 server = app.server
 
+# Default connection config
+_DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
 
-# ── JSON Syntax Highlighter (Dash components — no HTML injection) ─────────────
+
+# ── JSON Syntax Highlighter ───────────────────────────────────────────────────
 _TOKEN_RE = re.compile(
-    r'("(?:[^"\\]|\\.)*")(\s*:)'            # 1,2 → key + colon
-    r'|("(?:[^"\\]|\\.)*")'                  # 3   → string value
-    r'|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'  # 4   → number
-    r'|(true|false)'                          # 5   → boolean
-    r'|(null)'                                # 6   → null
-    r'|([{}\[\],])'                           # 7   → punctuation
-    r'|(\s+)',                                # 8   → whitespace
+    r'("(?:[^"\\]|\\.)*")(\s*:)'
+    r'|("(?:[^"\\]|\\.)*")'
+    r'|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'
+    r'|(true|false)'
+    r'|(null)'
+    r'|([{}\[\],])'
+    r'|(\s+)',
 )
 
 
 def highlight_json_components(json_str: str) -> html.Pre:
-    """Token-based JSON highlighter returning Dash html components."""
     parts = []
     for m in _TOKEN_RE.finditer(json_str):
         g = m.group
@@ -80,19 +80,19 @@ def method_badge(method: str) -> dbc.Badge:
     return dbc.Badge(method, color=METHOD_COLORS.get(method, "secondary"), className="method-badge")
 
 
-def build_response_panel(result: Dict[str, Any]) -> html.Div:
-    code = result["status_code"]
-    ms = result["elapsed_ms"]
-    data = result["data"]
+def _resolve_conn(conn_config):
+    """Return (host, token) based on app mode or conn_config."""
+    if IS_DATABRICKS_APP:
+        return get_host(), flask_request.headers.get("x-forwarded-access-token")
+    return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
-    if 200 <= code < 300:
-        status_color, status_icon = "success", "bi-check-circle-fill"
-    elif code == 0:
-        status_color, status_icon = "danger", "bi-x-octagon-fill"
-    elif 400 <= code < 500:
-        status_color, status_icon = "danger", "bi-x-circle-fill"
-    else:
-        status_color, status_icon = "warning", "bi-exclamation-circle-fill"
+
+def build_response_panel(result: Dict[str, Any]) -> html.Div:
+    code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
+    if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
+    elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
+    elif 400 <= code < 500: status_color, icon = "danger",  "bi-x-circle-fill"
+    else:                   status_color, icon = "warning", "bi-exclamation-circle-fill"
 
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
     truncated = len(json_str) > 50_000
@@ -110,10 +110,8 @@ def build_response_panel(result: Dict[str, Any]) -> html.Div:
 
     return html.Div([
         html.Div([
-            dbc.Badge(
-                [html.I(className=f"bi {status_icon} me-1"), str(code) if code else "Error"],
-                color=status_color, className="status-badge",
-            ),
+            dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
+                      color=status_color, className="status-badge"),
             html.Span(f"{ms}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(" [truncated]", className="truncation-notice") if truncated else None,
@@ -144,7 +142,6 @@ def build_param_form(endpoint: Dict) -> html.Div:
             dbc.Badge("required", color="danger", className="param-badge") if p.get("required")
             else dbc.Badge("optional", color="secondary", className="param-badge"),
         ], className="param-label")
-
         inp = dbc.Input(
             id={"type": "param-input", "name": p["name"]},
             type="number" if p["type"] == "integer" else "text",
@@ -152,11 +149,7 @@ def build_param_form(endpoint: Dict) -> html.Div:
             value=p.get("default", "") or "",
             className="param-input font-mono",
         )
-        rows.append(html.Div([
-            label_row,
-            html.Div(p.get("description", ""), className="param-desc"),
-            inp,
-        ], className="param-row"))
+        rows.append(html.Div([label_row, html.Div(p.get("description", ""), className="param-desc"), inp], className="param-row"))
 
     if not params and not body_template:
         rows.append(html.Div([
@@ -172,12 +165,7 @@ def build_param_form(endpoint: Dict) -> html.Div:
                 html.Span("Request Body", className="param-name"),
                 dbc.Badge("JSON", color="info", className="param-badge ms-2"),
             ], className="param-label mb-1"),
-            dbc.Textarea(
-                id="body-textarea",
-                value=body_template or "{}",
-                className="body-textarea font-mono mt-1",
-                rows=8,
-            ),
+            dbc.Textarea(id="body-textarea", value=body_template or "{}", className="body-textarea font-mono mt-1", rows=8),
         ], className="param-row"))
     else:
         rows.append(dbc.Textarea(id="body-textarea", value="", style={"display": "none"}))
@@ -191,10 +179,8 @@ def build_sidebar() -> html.Div:
     for cat_name, cat in API_CATALOG.items():
         btns = [
             html.Button(
-                [
-                    html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
-                    html.Span(ep["name"], className="ep-name"),
-                ],
+                [html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
+                 html.Span(ep["name"], className="ep-name")],
                 id={"type": "endpoint-btn", "id": ep["id"]},
                 n_clicks=0,
                 className="endpoint-btn",
@@ -207,11 +193,7 @@ def build_sidebar() -> html.Div:
             cat_name,
             dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"),
         ], className="cat-header d-flex align-items-center w-100")
-
-        items.append(dbc.AccordionItem(
-            html.Div(btns, className="endpoint-list"),
-            title=title_el,
-        ))
+        items.append(dbc.AccordionItem(html.Div(btns, className="endpoint-list"), title=title_el))
 
     return html.Div([
         html.Div([
@@ -239,178 +221,114 @@ TOPBAR = dbc.Navbar(
             html.Span(VERSION, className="version-badge me-2"),
             _MODE_BADGE,
             html.Span(id="host-display", className="host-display ms-3"),
-            # Clickable user chip — opens auth modal
             html.Button(
                 html.Span(id="user-display"),
                 id="user-btn",
                 n_clicks=0,
                 className="user-btn-trigger ms-3",
-                title="Click to view auth details",
+                title="Connection & identity",
             ),
         ], className="d-flex align-items-center"),
     ], fluid=True),
     color="dark", dark=True, className="topbar",
 )
 
-# ── Auth Info Modal ───────────────────────────────────────────────────────────
 
-def _auth_info_row(label: str, value: str) -> html.Div:
+# ── User Dropdown Panel ───────────────────────────────────────────────────────
+# Always in DOM, shown/hidden via style. Positioned fixed below topbar right edge.
+
+def _profile_section():
+    profiles = get_cli_profiles()
+    options = [{"label": p, "value": p} for p in profiles]
     return html.Div([
-        html.Span(label, className="auth-info-label"),
-        html.Span(value or "—", className="auth-info-value font-mono"),
-    ], className="auth-info-row")
+        html.Label("Profile", className="conn-label"),
+        dbc.Select(
+            id="profile-select",
+            options=options,
+            value=DATABRICKS_PROFILE if DATABRICKS_PROFILE in profiles else (profiles[0] if profiles else ""),
+            className="conn-select",
+        ),
+        html.Div(id="profile-auth-type", className="conn-hint mt-1"),
+        html.Button(
+            [html.I(className="bi bi-arrow-repeat me-2"), "Re-authenticate with SSO"],
+            id="reauth-btn",
+            n_clicks=0,
+            className="reauth-btn mt-2",
+        ),
+        html.Div(id="reauth-status", className="mt-2 small"),
+    ], id="profile-section")
 
 
-def build_auth_modal_body() -> html.Div:
-    """Fetch live auth info and render the modal body."""
-    host = get_host()
-
-    if IS_DATABRICKS_APP:
-        token = flask_request.headers.get("x-forwarded-access-token")
-        auth_mode = "Databricks App (OBO)"
-        auth_type = "on-behalf-of"
-        profile_name = "N/A (managed by platform)"
-    else:
-        token = get_local_token()
-        auth_mode = "Local (CLI profile)"
-        profile_name = DATABRICKS_PROFILE
-        try:
-            cfg = _get_local_config()
-            auth_type = getattr(cfg, "auth_type", None) or "unknown"
-        except Exception:
-            auth_type = "unknown"
-
-    # Fetch full SCIM /Me profile
-    scim_data: Dict = {}
-    if token and host:
-        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
-        if r["success"]:
-            scim_data = r["data"]
-
-    display_name = scim_data.get("displayName", "Unknown")
-    username = scim_data.get("userName", "")
-    active = scim_data.get("active", True)
-    emails: List[Dict] = scim_data.get("emails", [])
-    groups: List[Dict] = scim_data.get("groups", [])
-    entitlements: List[Dict] = scim_data.get("entitlements", [])
-    roles: List[Dict] = scim_data.get("roles", [])
-    user_id = scim_data.get("id", "")
-
-    primary_email = next((e["value"] for e in emails if e.get("primary")), emails[0]["value"] if emails else "")
-    avatar_letter = (display_name[0] if display_name and display_name != "Unknown" else username[0] if username else "?").upper()
-
-    auth_type_labels = {
-        "pat": "Personal Access Token",
-        "oauth-m2m": "OAuth M2M (Client Credentials)",
-        "external-browser": "OAuth (Browser / SSO)",
-        "azure-client-secret": "Azure Service Principal",
-        "azure-msi": "Azure Managed Identity",
-        "on-behalf-of": "On-Behalf-Of (OBO)",
-        "unknown": "Unknown",
-    }
-    auth_type_display = auth_type_labels.get(auth_type, auth_type)
-
+def _custom_section():
     return html.Div([
-        # ── Profile header ────────────────────────────────────────────
-        html.Div([
-            html.Div(avatar_letter, className="auth-avatar"),
-            html.Div([
-                html.Div(display_name, className="auth-display-name"),
-                html.Div(username, className="auth-username"),
-                html.Div([
-                    dbc.Badge(
-                        [html.I(className="bi bi-circle-fill me-1"), "Active" if active else "Inactive"],
-                        color="success" if active else "danger",
-                        className="auth-active-badge",
-                    ),
-                ], className="mt-1"),
-            ]),
-        ], className="auth-profile-header"),
+        html.Label("Workspace URL", className="conn-label"),
+        dbc.Input(
+            id="custom-host-input",
+            type="url",
+            placeholder="https://adb-xxxx.azuredatabricks.net",
+            className="conn-input font-mono",
+        ),
+        html.Label("Personal Access Token", className="conn-label mt-2"),
+        dbc.Input(
+            id="custom-token-input",
+            type="password",
+            placeholder="dapi…",
+            className="conn-input font-mono",
+        ),
+    ], id="custom-section", style={"display": "none"})
 
-        html.Hr(className="divider"),
 
-        # ── Auth details ─────────────────────────────────────────────
-        html.Div("Authentication", className="auth-section-title"),
+USER_DROPDOWN = html.Div([
+    # ── Identity section ──────────────────────────────────────
+    html.Div([
+        html.Div(id="popup-avatar", className="auth-avatar"),
         html.Div([
-            _auth_info_row("Mode", auth_mode),
-            _auth_info_row("Auth type", auth_type_display),
-            _auth_info_row("Workspace", host.replace("https://", "")),
-            _auth_info_row("Profile", profile_name),
-            _auth_info_row("User ID", user_id),
-            _auth_info_row("Username", username),
-            _auth_info_row("Email", primary_email),
-        ], className="auth-info-table"),
-
-        # ── All emails ────────────────────────────────────────────────
-        html.Div([
-            html.Hr(className="divider"),
-            html.Div("Email Addresses", className="auth-section-title"),
-            html.Div([
-                html.Div([
-                    html.Span(e.get("value", ""), className="font-mono small"),
-                    dbc.Badge(e.get("type", ""), color="secondary", className="ms-2 small"),
-                    dbc.Badge("primary", color="info", className="ms-1 small") if e.get("primary") else None,
-                ], className="mb-1")
-                for e in emails
-            ]) if emails else html.Div("—", className="text-muted small"),
-        ]) if emails else None,
-
-        # ── Groups ───────────────────────────────────────────────────
-        html.Div([
-            html.Hr(className="divider"),
-            html.Div(f"Groups ({len(groups)})", className="auth-section-title"),
-            html.Div([
-                dbc.Badge(g.get("display", g.get("value", "?")), color="secondary", className="me-1 mb-1 auth-group-badge")
-                for g in groups[:30]
-            ]) if groups else html.Div("No groups", className="text-muted small"),
-            html.Div(f"… and {len(groups) - 30} more", className="text-muted small mt-1") if len(groups) > 30 else None,
+            html.Div(id="popup-name", className="auth-display-name"),
+            html.Div(id="popup-username", className="auth-username"),
+            html.Div(id="popup-status"),
         ]),
+    ], className="auth-profile-header px-4 pt-3 pb-2"),
 
-        # ── Entitlements & roles ──────────────────────────────────────
-        html.Div([
-            html.Hr(className="divider"),
-            html.Div("Entitlements & Roles", className="auth-section-title"),
-            html.Div([
-                dbc.Badge(e.get("value", "?"), color="info", className="me-1 mb-1")
-                for e in entitlements + roles
-            ]) if (entitlements or roles) else html.Div("None", className="text-muted small"),
-        ]),
+    html.Div(id="popup-auth-details", className="px-4 pb-2"),
 
-        # ── Re-auth (local only) ──────────────────────────────────────
-        html.Div([
-            html.Hr(className="divider"),
-            html.Div("Re-authenticate", className="auth-section-title"),
-            html.P(
-                f"Trigger a new SSO login for profile '{DATABRICKS_PROFILE}'. "
-                "A browser window will open — complete the login, then refresh.",
-                className="text-muted small mb-3",
-            ),
-            html.Div([
-                html.Button(
-                    [html.I(className="bi bi-arrow-repeat me-2"), "Re-authenticate with SSO"],
-                    id="reauth-btn",
-                    n_clicks=0,
-                    className="reauth-btn",
-                ),
-                html.Div(id="reauth-status", className="mt-2"),
-            ]),
-            html.Div([
-                html.Span("Manual command:", className="text-muted small me-2"),
-                html.Code(
-                    f"databricks auth login --profile {DATABRICKS_PROFILE}",
-                    className="font-mono small auth-cmd",
-                ),
-            ], className="mt-3"),
-        ]) if not IS_DATABRICKS_APP else html.Div([
-            html.Hr(className="divider"),
-            html.Div("Re-authenticate", className="auth-section-title"),
-            html.P(
-                "Token refresh is managed automatically by Databricks Apps via OBO. "
-                "No manual re-authentication is required.",
-                className="text-muted small",
-            ),
-        ]),
-    ], className="auth-modal-body")
+    html.Hr(className="divider mx-3"),
+
+    # ── Connection section ────────────────────────────────────
+    html.Div([
+        html.Div("Connection", className="auth-section-title mb-2"),
+        dbc.RadioItems(
+            id="conn-mode-radio",
+            options=[
+                {"label": "CLI Profile", "value": "profile"},
+                {"label": "Custom URL", "value": "custom"},
+            ],
+            value="profile",
+            inline=True,
+            className="conn-mode-radio mb-3",
+            input_class_name="conn-radio-input",
+            label_class_name="conn-radio-label",
+        ),
+        _profile_section(),
+        _custom_section(),
+        html.Button(
+            [html.I(className="bi bi-plug-fill me-2"), "Connect"],
+            id="apply-conn-btn",
+            n_clicks=0,
+            className="apply-btn mt-3",
+        ),
+        html.Div(id="conn-status", className="mt-2 small"),
+    ], className="px-4 pb-3"),
+
+    html.Hr(className="divider mx-3"),
+
+    # ── Groups section ────────────────────────────────────────
+    html.Div([
+        html.Div("Groups", className="auth-section-title mb-2"),
+        html.Div(id="popup-groups"),
+    ], className="px-4 pb-4"),
+
+], id="user-dropdown", style={"display": "none"}, className="user-dropdown")
+
 
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
 WELCOME = html.Div([
@@ -438,35 +356,18 @@ _RESPONSE_EMPTY = html.Div([
     html.Div("Select an endpoint and click Execute"),
 ], className="response-empty")
 
-# ── Auth Modal component ──────────────────────────────────────────────────────
-AUTH_MODAL = dbc.Modal([
-    dbc.ModalHeader(
-        html.Div([
-            html.Div([html.I(className="bi bi-shield-lock me-2"), "Identity & Auth"], className="modal-title-text"),
-        ]),
-        close_button=True,
-        className="auth-modal-header",
-    ),
-    dbc.ModalBody(html.Div(id="auth-modal-body"), className="auth-modal-body-wrap"),
-], id="auth-modal", is_open=False, size="lg", scrollable=True, className="auth-modal")
-
-
-# Static layout — both panels always in DOM for reliable callback targeting.
 app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
-    AUTH_MODAL,
+    dcc.Store(id="conn-config", data=_DEFAULT_CONN),
 
     TOPBAR,
+    USER_DROPDOWN,  # fixed dropdown, outside normal flow
 
     html.Div([
         build_sidebar(),
-
         html.Div([
-            # Left: form panel (scrollable, fixed width)
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
-
-            # Right: response fills ALL remaining space
             html.Div([
                 html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
             ], className="response-panel"),
@@ -477,19 +378,19 @@ app.layout = html.Div([
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 
+# 1. Init: populate topbar on page load or connection change
 @app.callback(
     Output("user-display", "children"),
     Output("host-display", "children"),
     Input("url", "pathname"),
+    Input("conn-config", "data"),
 )
-def init_on_load(_):
-    host = get_host()
+def init_on_load(_, conn_config):
+    host, token = _resolve_conn(conn_config)
     host_label = html.Span(
-        host.replace("https://", "").replace("http://", ""),
+        (host or "").replace("https://", ""),
         className="text-muted",
-    ) if host else html.Span("(no host)", className="text-warning")
-
-    token = flask_request.headers.get("x-forwarded-access-token") if IS_DATABRICKS_APP else get_local_token()
+    ) if host else html.Span("(not connected)", className="text-warning")
 
     if token and host:
         info = get_current_user_info(token, host)
@@ -502,56 +403,211 @@ def init_on_load(_):
     else:
         user_el = html.Span([
             html.I(className="bi bi-person-circle me-1"),
-            "Not authenticated",
+            "Not connected",
+            html.I(className="bi bi-chevron-down ms-1 small"),
         ], className="user-chip text-warning")
-
     return user_el, host_label
 
 
+# 2. Toggle dropdown and populate identity info
 @app.callback(
-    Output("auth-modal", "is_open"),
-    Output("auth-modal-body", "children"),
+    Output("user-dropdown", "style"),
+    Output("popup-avatar", "children"),
+    Output("popup-name", "children"),
+    Output("popup-username", "children"),
+    Output("popup-status", "children"),
+    Output("popup-auth-details", "children"),
+    Output("popup-groups", "children"),
+    Output("conn-mode-radio", "value"),
+    Output("profile-select", "value"),
     Input("user-btn", "n_clicks"),
-    State("auth-modal", "is_open"),
+    State("user-dropdown", "style"),
+    State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def toggle_auth_modal(n_clicks, is_open):
+def toggle_dropdown(n_clicks, current_style, conn_config):
+    # Close if already open
+    if current_style and current_style.get("display") != "none":
+        return {"display": "none"}, *([no_update] * 7)
+
+    conn_config = conn_config or _DEFAULT_CONN
+    host, token = _resolve_conn(conn_config)
+
+    scim: Dict = {}
+    if token and host:
+        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+        if r["success"]:
+            scim = r["data"]
+
+    display_name = scim.get("displayName", "Unknown")
+    username = scim.get("userName", "")
+    active = scim.get("active", True)
+    groups: List[Dict] = scim.get("groups", [])
+    entitlements: List[Dict] = scim.get("entitlements", [])
+    emails: List[Dict] = scim.get("emails", [])
+    primary_email = next((e["value"] for e in emails if e.get("primary")), emails[0]["value"] if emails else "")
+    user_id = scim.get("id", "")
+
+    letter = (display_name[0] if display_name not in ("", "Unknown") else username[0] if username else "?").upper()
+
+    # Auth type
+    if IS_DATABRICKS_APP:
+        auth_type_display = "On-Behalf-Of (OBO)"
+    elif conn_config.get("mode") == "custom":
+        auth_type_display = "Personal Access Token"
+    else:
+        try:
+            cfg = _get_local_config()
+            raw = getattr(cfg, "auth_type", None) or "unknown"
+            auth_type_display = {
+                "pat": "Personal Access Token",
+                "oauth-m2m": "OAuth M2M",
+                "external-browser": "OAuth (Browser / SSO)",
+                "azure-client-secret": "Azure Service Principal",
+                "azure-msi": "Azure Managed Identity",
+            }.get(raw, raw)
+        except Exception:
+            auth_type_display = "Unknown"
+
+    auth_details = html.Div([
+        html.Div([html.Span("Auth", className="auth-info-label"), html.Span(auth_type_display, className="auth-info-value font-mono")], className="auth-info-row"),
+        html.Div([html.Span("Host", className="auth-info-label"), html.Span((host or "—").replace("https://", ""), className="auth-info-value font-mono small")], className="auth-info-row"),
+        html.Div([html.Span("Email", className="auth-info-label"), html.Span(primary_email or "—", className="auth-info-value small")], className="auth-info-row") if primary_email else None,
+        html.Div([html.Span("User ID", className="auth-info-label"), html.Span(user_id or "—", className="auth-info-value font-mono small")], className="auth-info-row") if user_id else None,
+    ], className="auth-info-table")
+
+    groups_el = html.Div([
+        dbc.Badge(g.get("display", g.get("value", "?")), color="secondary", className="me-1 mb-1 auth-group-badge")
+        for g in groups[:20]
+    ] + ([html.Span(f"+{len(groups)-20} more", className="text-muted small")] if len(groups) > 20 else [])
+    ) if groups else html.Span("No groups", className="text-muted small")
+
+    status_el = dbc.Badge(
+        [html.I(className="bi bi-circle-fill me-1"), "Active" if active else "Inactive"],
+        color="success" if active else "danger", className="auth-active-badge mt-1",
+    )
+
+    return (
+        {"display": "block"},
+        letter,
+        display_name,
+        username,
+        status_el,
+        auth_details,
+        groups_el,
+        conn_config.get("mode", "profile"),
+        conn_config.get("profile", DATABRICKS_PROFILE),
+    )
+
+
+# 3. Close dropdown when clicking user-btn again (handled above) or via ESC key not supported,
+#    so provide close by clicking user-btn (toggle) — already handled in callback 2.
+
+# 4. Show/hide profile vs custom section
+@app.callback(
+    Output("profile-section", "style"),
+    Output("custom-section", "style"),
+    Input("conn-mode-radio", "value"),
+)
+def toggle_conn_mode(mode):
+    if mode == "profile":
+        return {}, {"display": "none"}
+    return {"display": "none"}, {}
+
+
+# 5. Show auth type hint when profile changes
+@app.callback(
+    Output("profile-auth-type", "children"),
+    Input("profile-select", "value"),
+)
+def show_profile_hint(profile):
+    if not profile:
+        return ""
+    try:
+        from databricks.sdk.core import Config
+        cfg = Config(profile=profile)
+        raw = getattr(cfg, "auth_type", None) or "?"
+        label = {
+            "pat": "Personal Access Token",
+            "oauth-m2m": "OAuth M2M",
+            "external-browser": "OAuth (Browser / SSO)",
+            "azure-client-secret": "Azure Service Principal",
+            "azure-msi": "Azure Managed Identity",
+        }.get(raw, raw)
+        host = (cfg.host or "").replace("https://", "")
+        return html.Span(f"{label} · {host}", className="text-muted")
+    except Exception as e:
+        return html.Span(str(e), className="text-danger small")
+
+
+# 6. Apply connection
+@app.callback(
+    Output("conn-config", "data"),
+    Output("conn-status", "children"),
+    Input("apply-conn-btn", "n_clicks"),
+    State("conn-mode-radio", "value"),
+    State("profile-select", "value"),
+    State("custom-host-input", "value"),
+    State("custom-token-input", "value"),
+    prevent_initial_call=True,
+)
+def apply_connection(n_clicks, mode, profile, custom_host, custom_token):
     if not n_clicks:
         return no_update, no_update
-    if is_open:
-        return False, no_update
-    return True, build_auth_modal_body()
+
+    if mode == "profile":
+        if not profile:
+            return no_update, html.Span("No profile selected.", className="text-danger")
+        new_config = {"mode": "profile", "profile": profile}
+        # Quick validation
+        host, token = resolve_local_connection(new_config)
+        if not host or not token:
+            return no_update, html.Span("Could not connect with this profile — check CLI auth.", className="text-danger")
+        return new_config, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected via profile '{profile}'"])
+
+    else:  # custom
+        host = (custom_host or "").strip().rstrip("/")
+        token = (custom_token or "").strip()
+        if not host:
+            return no_update, html.Span("Workspace URL is required.", className="text-danger")
+        if not token:
+            return no_update, html.Span("Token is required.", className="text-danger")
+        if not host.startswith("https://"):
+            host = "https://" + host
+        # Quick validation
+        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+        if not r["success"]:
+            return no_update, html.Span(f"Connection failed: {r['status_code']} {r.get('error','')}", className="text-danger")
+        return {"mode": "custom", "host": host, "token": token}, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected to {host.replace('https://','')}"])
 
 
+# 7. Re-auth (profile mode only)
 @app.callback(
     Output("reauth-status", "children"),
     Input("reauth-btn", "n_clicks"),
+    State("profile-select", "value"),
     prevent_initial_call=True,
 )
-def reauth(n_clicks):
+def reauth(n_clicks, profile):
     if not n_clicks:
         return no_update
+    p = profile or DATABRICKS_PROFILE
     try:
         subprocess.Popen(
-            ["databricks", "auth", "login", "--profile", DATABRICKS_PROFILE],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ["databricks", "auth", "login", "--profile", p],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        return html.Div([
-            html.I(className="bi bi-check-circle-fill me-2 text-success"),
-            "Browser opened — complete the SSO login, then ",
-            html.A("refresh the page", href="/", className="text-info"),
-            " to apply the new token.",
-        ], className="small")
+        return html.Span([
+            html.I(className="bi bi-check-circle-fill me-1 text-success"),
+            "Browser opened — complete SSO, then click Connect.",
+        ])
     except FileNotFoundError:
-        return html.Div([
-            html.I(className="bi bi-x-circle-fill me-2 text-danger"),
-            "Databricks CLI not found. Install it and run the command below manually.",
-        ], className="small text-danger")
-    except Exception as exc:
-        return html.Div(str(exc), className="small text-danger")
+        return html.Span("Databricks CLI not found.", className="text-danger")
+    except Exception as e:
+        return html.Span(str(e), className="text-danger")
 
 
+# 8. Select endpoint
 @app.callback(
     Output("selected-endpoint", "data"),
     Output({"type": "endpoint-btn", "id": ALL}, "className"),
@@ -563,24 +619,18 @@ def select_endpoint(n_clicks_list, btn_ids):
     from dash import callback_context as ctx
     if not ctx.triggered:
         return no_update, no_update
-
-    triggered_prop = ctx.triggered[0]["prop_id"].split(".")[0]
     try:
-        clicked_id = json.loads(triggered_prop)["id"]
+        clicked_id = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["id"]
     except (json.JSONDecodeError, KeyError):
         return no_update, no_update
-
     endpoint = get_endpoint_by_id(clicked_id)
     if not endpoint:
         return no_update, no_update
-
-    classnames = [
-        "endpoint-btn active" if btn["id"] == clicked_id else "endpoint-btn"
-        for btn in btn_ids
-    ]
+    classnames = ["endpoint-btn active" if b["id"] == clicked_id else "endpoint-btn" for b in btn_ids]
     return endpoint, classnames
 
 
+# 9. Render endpoint detail
 @app.callback(
     Output("endpoint-detail", "children"),
     Output("endpoint-detail", "className"),
@@ -590,37 +640,30 @@ def select_endpoint(n_clicks_list, btn_ids):
 def render_endpoint_detail(endpoint: Optional[Dict]):
     if not endpoint:
         return WELCOME, "form-panel"
-
-    method = endpoint.get("method", "GET")
     cat_color = endpoint.get("category_color", "#00d4ff")
-
     content = html.Div([
         html.Div([
-            method_badge(method),
+            method_badge(endpoint.get("method", "GET")),
             html.Div([
                 html.Div(endpoint["name"], className="endpoint-name"),
                 html.Div(html.Span(endpoint.get("category", ""), style={"color": cat_color}), className="endpoint-category"),
             ], className="endpoint-meta"),
         ], className="endpoint-header"),
-
         html.Div(endpoint["path"], className="endpoint-path font-mono"),
         html.Div(endpoint.get("description", ""), className="endpoint-desc"),
         html.Hr(className="divider"),
         html.Div("Parameters", className="param-section-title"),
         build_param_form(endpoint),
         html.Hr(className="divider"),
-
         html.Button(
             [html.I(className="bi bi-play-fill me-2"), "Execute"],
-            id="execute-btn",
-            n_clicks=0,
-            className="execute-btn",
+            id="execute-btn", n_clicks=0, className="execute-btn",
         ),
     ], className="endpoint-card")
-
     return content, "form-panel"
 
 
+# 10. Execute API call
 @app.callback(
     Output("response-container", "children"),
     Input("execute-btn", "n_clicks"),
@@ -628,13 +671,13 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
     State({"type": "param-input", "name": ALL}, "value"),
     State({"type": "param-input", "name": ALL}, "id"),
     State("body-textarea", "value"),
+    State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text):
+def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
         return no_update
 
-    # Build query params dict
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
     for pid, pval in zip(param_ids, param_values):
@@ -649,7 +692,6 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text):
         else:
             params[name] = pval
 
-    # Substitute path parameters
     path: str = endpoint["path"]
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
@@ -657,7 +699,6 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text):
             return build_error_panel(f"Path parameter '{pp}' is required.")
         path = path.replace(f"{{{pp}}}", str(val))
 
-    # Parse JSON body for POST
     method = endpoint.get("method", "GET")
     body = None
     if method == "POST" and body_text and body_text.strip():
@@ -666,37 +707,20 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text):
         except json.JSONDecodeError as e:
             return build_error_panel(f"Invalid JSON body: {e}")
 
-    # Resolve auth token
-    if IS_DATABRICKS_APP:
-        token = flask_request.headers.get("x-forwarded-access-token")
-        if not token:
-            return build_error_panel(
-                "No user token found. Ensure 'User authorization' (OBO) is enabled for this app."
-            )
-    else:
-        token = get_local_token()
-        from auth import DATABRICKS_PROFILE
-        if not token:
-            return build_error_panel(
-                f"Could not get token from CLI profile '{DATABRICKS_PROFILE}'. "
-                "Ensure you are authenticated: databricks auth login --profile " + DATABRICKS_PROFILE
-            )
-
-    host = get_host()
+    host, token = _resolve_conn(conn_config)
+    if not token:
+        return build_error_panel("No auth token. Configure a connection in the user menu.")
     if not host:
-        return build_error_panel("Workspace host not configured.")
+        return build_error_panel("No workspace host. Configure a connection in the user menu.")
 
     result = make_api_call(
-        method=method,
-        path=path,
-        token=token,
-        host=host,
-        query_params=params if method == "GET" else None,
-        body=body,
+        method=method, path=path, token=token, host=host,
+        query_params=params if method == "GET" else None, body=body,
     )
     return build_response_panel(result)
 
 
+# 11. Search filter
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "style"),
     Input("search-input", "value"),
@@ -707,11 +731,9 @@ def filter_endpoints(query, btn_ids):
         return [{"display": "flex"} for _ in btn_ids]
     q = query.strip().lower()
     return [
-        {"display": "flex"} if (
-            q in ENDPOINT_MAP.get(b["id"], {}).get("name", "").lower()
-            or q in ENDPOINT_MAP.get(b["id"], {}).get("path", "").lower()
-            or q in ENDPOINT_MAP.get(b["id"], {}).get("category", "").lower()
-            or q in ENDPOINT_MAP.get(b["id"], {}).get("method", "").lower()
+        {"display": "flex"} if any(
+            q in ENDPOINT_MAP.get(b["id"], {}).get(k, "").lower()
+            for k in ("name", "path", "category", "method")
         ) else {"display": "none"}
         for b in btn_ids
     ]
@@ -719,6 +741,6 @@ def filter_endpoints(query, btn_ids):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import os
-    port = int(os.getenv("DATABRICKS_APP_PORT", "8050"))
+    import os as _os
+    port = int(_os.getenv("DATABRICKS_APP_PORT", "8050"))
     app.run(debug=not IS_DATABRICKS_APP, host="0.0.0.0", port=port)

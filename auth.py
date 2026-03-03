@@ -2,57 +2,95 @@
 Authentication module for Databricks API Explorer.
 
 Two modes:
-  Local  → Databricks CLI profile 'guido-demo-azure' (SSO / OAuth / PAT)
+  Local  → Databricks CLI profile (SSO / OAuth / PAT) or custom URL + token
   App    → On-Behalf-Of (OBO) via x-forwarded-access-token header
 """
+import configparser
 import os
 import time
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 # ── Detection ─────────────────────────────────────────────────────────────────
-# Databricks Apps auto-injects DATABRICKS_CLIENT_SECRET for the app SP.
 IS_DATABRICKS_APP: bool = bool(os.getenv("DATABRICKS_CLIENT_SECRET"))
 
 DATABRICKS_PROFILE = "guido-demo-azure"
 
 
-# ── Config / SDK ──────────────────────────────────────────────────────────────
+# ── CLI Profile discovery ──────────────────────────────────────────────────────
+
+def get_cli_profiles() -> List[str]:
+    """Read all Databricks CLI profile names from ~/.databrickscfg."""
+    path = os.path.expanduser("~/.databrickscfg")
+    if not os.path.exists(path):
+        return [DATABRICKS_PROFILE]
+    cfg = configparser.ConfigParser()
+    cfg.read(path)
+    sections = cfg.sections()
+    return sections if sections else [DATABRICKS_PROFILE]
+
+
+# ── Connection resolution ──────────────────────────────────────────────────────
+
+def resolve_local_connection(conn_config: Optional[Dict]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Resolve (host, token) from a connection config dict for local mode.
+
+    conn_config shapes:
+      {"mode": "profile", "profile": "<name>"}
+      {"mode": "custom",  "host": "https://...", "token": "dapi..."}
+    """
+    if not conn_config:
+        conn_config = {"mode": "profile", "profile": DATABRICKS_PROFILE}
+
+    mode = conn_config.get("mode", "profile")
+
+    if mode == "custom":
+        host = (conn_config.get("host") or "").rstrip("/")
+        token = (conn_config.get("token") or "")
+        return (host or None), (token or None)
+
+    # Profile mode
+    profile = conn_config.get("profile") or DATABRICKS_PROFILE
+    try:
+        from databricks.sdk.core import Config  # noqa: PLC0415
+        cfg = Config(profile=profile)
+        host = (cfg.host or "").rstrip("/")
+        auth_val = cfg.authenticate().get("Authorization", "")
+        token = auth_val[7:] if auth_val.startswith("Bearer ") else None
+        return host or None, token
+    except Exception:
+        return None, None
+
+
+# ── Legacy helpers (used when no conn_config is needed) ───────────────────────
 
 @lru_cache(maxsize=1)
 def _get_local_config():
-    """Lazy-load local SDK Config using the CLI profile (also exported for auth modal)."""
+    """Lazy-load SDK Config for the default profile (exported for auth modal)."""
     from databricks.sdk.core import Config  # noqa: PLC0415
     return Config(profile=DATABRICKS_PROFILE)
 
 
 def get_host() -> str:
-    """Return the Databricks workspace host URL (without trailing slash)."""
+    """Return workspace host for the default profile (app-mode aware)."""
     if IS_DATABRICKS_APP:
         return os.getenv("DATABRICKS_HOST", "").rstrip("/")
     try:
-        cfg = _get_local_config()
-        return (cfg.host or "").rstrip("/")
+        return (_get_local_config().host or "").rstrip("/")
     except Exception:
         return ""
 
 
 def get_local_token() -> Optional[str]:
-    """
-    Extract bearer token from the local SDK Config.
-    Supports PAT, OAuth M2M, and browser-based OAuth (SSO).
-    """
+    """Return token for the default local profile."""
     try:
-        cfg = _get_local_config()
-        auth_headers = cfg.authenticate()
-        auth_val = auth_headers.get("Authorization", "")
-        if auth_val.startswith("Bearer "):
-            return auth_val[7:]
+        auth_val = _get_local_config().authenticate().get("Authorization", "")
+        return auth_val[7:] if auth_val.startswith("Bearer ") else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 # ── User Info ─────────────────────────────────────────────────────────────────
@@ -80,17 +118,7 @@ def make_api_call(
     body: Optional[Any] = None,
     timeout: int = 30,
 ) -> Dict[str, Any]:
-    """
-    Execute a Databricks REST API call.
-
-    Returns:
-        status_code : int   — HTTP status code (0 on network error)
-        elapsed_ms  : int   — round-trip time in milliseconds
-        data        : any   — parsed JSON response body
-        success     : bool  — True for 2xx responses
-        error       : str|None
-        url         : str   — full request URL
-    """
+    """Execute a Databricks REST API call."""
     url = f"{host}{path}"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -98,7 +126,6 @@ def make_api_call(
         "User-Agent": "DatabricksAPIExplorer/1.0",
     }
 
-    # Strip empty/None query params
     if query_params:
         query_params = {k: v for k, v in query_params.items() if v not in (None, "")}
 
@@ -114,12 +141,10 @@ def make_api_call(
             timeout=timeout,
         )
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-
         try:
             data = response.json()
         except Exception:
             data = {"_raw": response.text}
-
         return {
             "status_code": response.status_code,
             "elapsed_ms": elapsed_ms,
@@ -128,7 +153,6 @@ def make_api_call(
             "error": None if response.ok else response.reason,
             "url": url,
         }
-
     except requests.exceptions.Timeout:
         return {
             "status_code": 0,

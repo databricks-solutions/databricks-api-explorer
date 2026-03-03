@@ -586,27 +586,77 @@ body {
   box-shadow: 0 0 10px rgba(0,212,255,0.1);
 }
 
-/* ── Auth Modal ───────────────────────────────────────────────────── */
-.auth-modal .modal-content {
-  background: #0d1225 !important;
-  border: 1px solid rgba(0,212,255,0.2) !important;
-  border-radius: var(--r-lg) !important;
-  color: var(--text-1) !important;
+/* ── User Dropdown Panel ──────────────────────────────────────────── */
+.user-dropdown {
+  position: fixed;
+  top: 56px;
+  right: 0;
+  width: 370px;
+  background: #0a0f20;
+  border-left: 1px solid rgba(0,212,255,0.18);
+  border-bottom: 1px solid rgba(0,212,255,0.18);
+  border-radius: 0 0 0 var(--r-lg);
+  z-index: 9999;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+  box-shadow: -10px 10px 40px rgba(0,0,0,0.7);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
-.auth-modal .modal-header {
-  border-bottom: 1px solid var(--border) !important;
-  background: rgba(0,0,0,0.2);
-  padding: 16px 20px;
-}
-.modal-title-text {
-  font-size: 15px;
+.user-dropdown::-webkit-scrollbar { width: 4px; }
+.user-dropdown::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+/* Connection mode radio */
+.conn-mode-radio .form-check { margin-right: 16px; }
+.conn-radio-input { border-color: var(--border) !important; accent-color: var(--cyan); }
+.conn-radio-label { font-size: 12px; color: var(--text-2); cursor: pointer; }
+
+/* Connection form elements */
+.conn-label {
+  display: block;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-hi);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+  margin-bottom: 4px;
 }
-.auth-modal .btn-close { filter: invert(1) opacity(0.5); }
-.auth-modal .btn-close:hover { filter: invert(1) opacity(1); }
-.auth-modal-body-wrap { padding: 0 !important; }
-.auth-modal-body { padding: 20px 24px 24px; }
+.conn-select, .conn-input {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-1) !important;
+  font-size: 12px !important;
+  border-radius: var(--r-sm) !important;
+  height: 34px !important;
+}
+.conn-select:focus, .conn-input:focus {
+  border-color: var(--border-hi) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.1) !important;
+}
+.conn-select option { background: #0d1225; }
+.conn-hint { font-size: 11px; color: var(--text-3); }
+
+/* Apply / Connect button */
+.apply-btn {
+  background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.08));
+  border: 1px solid rgba(0,212,255,0.3);
+  color: var(--cyan);
+  border-radius: var(--r-md);
+  padding: 7px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: center;
+}
+.apply-btn:hover {
+  background: rgba(0,212,255,0.18);
+  border-color: rgba(0,212,255,0.5);
+  box-shadow: 0 0 12px rgba(0,212,255,0.15);
+}
 
 /* Profile header */
 .auth-profile-header {
