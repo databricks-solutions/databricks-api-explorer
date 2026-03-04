@@ -7,9 +7,7 @@ Run modes:
   Databricks App → auth via OBO (x-forwarded-access-token header)
 """
 
-import html as _html_esc
 import json
-import re
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
@@ -87,155 +85,97 @@ def _find_list_key(data: dict) -> Optional[str]:
     return None
 
 
-# ── JSON Syntax Highlighter ───────────────────────────────────────────────────
-_TOKEN_RE = re.compile(
-    r'("(?:[^"\\]|\\.)*")(\s*:)'
-    r'|("(?:[^"\\]|\\.)*")'
-    r'|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'
-    r'|(true|false)'
-    r'|(null)'
-    r'|([{}\[\],])'
-    r'|(\s+)',
+# ── JSON Tree Viewer ──────────────────────────────────────────────────────────
+_TREE_CSS = (
+    "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
+    "html,body{margin:0;padding:14px 18px;background:#050810;overflow:auto;}"
+    "body{font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;"
+    "font-size:12px;line-height:1.7;color:#94a3b8;}"
+    ".tree-node{display:block;}"
+    ".node-header{display:block;}"
+    ".toggle{display:inline-block;width:14px;text-align:center;cursor:pointer;"
+    "user-select:none;color:#475569;transition:color .1s;}"
+    ".toggle:hover{color:#00d4ff;}"
+    ".preview{color:#475569;font-style:italic;}"
+    ".tree-node:not(.collapsed)>.node-header>.preview{display:none;}"
+    ".children{margin-left:20px;display:block;}"
+    ".close-line{display:block;}"
+    ".tree-node.collapsed>.children,.tree-node.collapsed>.close-line{display:none;}"
+    ".kv,.item{display:block;}"
+    ".jk{color:#60a5fa}.jv{color:#86efac}.jn{color:#fbbf24}"
+    ".jb{color:#c084fc}.jbn{color:#94a3b8}.jp{color:#64748b}"
+    ".id-link{cursor:pointer;border-bottom:1px dashed currentColor;}"
+    ".id-link:hover{color:#00d4ff!important;border-bottom-color:#00d4ff;"
+    "text-shadow:0 0 6px rgba(0,212,255,.5);}"
+    "::-webkit-scrollbar{width:6px;height:6px}"
+    "::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}"
+    "::-webkit-scrollbar-track{background:transparent}"
+    "*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}"
 )
 
+# Raw string — no Python escape processing; JS unicode escapes work as-is in browser.
+_TREE_JS = r"""
+function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
+function idLink(cls,display,gid,par,val){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;e.onclick=function(){window.parent.postMessage({type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val},'*');};return e;}
+function renderValue(val,pKey,depth){
+  if(val===null)return mkEl('span','jbn','null');
+  var t=typeof val;
+  if(t==='boolean')return mkEl('span','jb',String(val));
+  if(t==='number'){var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val)):mkEl('span','jn',String(val));}
+  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];return c2?idLink('jv','"'+val+'"',c2.gid,c2.par,val):mkEl('span','jv','"'+val+'"');}
+  if(Array.isArray(val))return renderArray(val,depth);
+  if(t==='object')return renderObject(val,depth);
+  return mkEl('span','jbn',String(val));
+}
+function fillObj(container,obj,depth){Object.keys(obj).forEach(function(k,i,arr){var kv=mkEl('div','kv');kv.appendChild(mkEl('span','jk','"'+k+'"'));kv.appendChild(mkEl('span','jp',': '));kv.appendChild(renderValue(obj[k],k,depth+1));if(i<arr.length-1)kv.appendChild(mkEl('span','jp',','));container.appendChild(kv);});}
+function fillArr(container,arr,depth){arr.forEach(function(v,i,a){var item=mkEl('div','item');item.appendChild(renderValue(v,null,depth+1));if(i<a.length-1)item.appendChild(mkEl('span','jp',','));container.appendChild(item);});}
+function buildNode(openCh,closeCh,label,data,depth,isObj){
+  var collapsed=depth>=2;
+  var node=mkEl('div',collapsed?'tree-node collapsed':'tree-node');
+  var hdr=mkEl('div','node-header');
+  var btn=mkEl('span','toggle',collapsed?'\u25b8':'\u25be');
+  hdr.appendChild(btn);hdr.appendChild(mkEl('span','jp',openCh));hdr.appendChild(mkEl('span','preview jp',' '+label+' '+closeCh));
+  node.appendChild(hdr);
+  var rendered=false;
+  function ensure(){if(rendered)return;rendered=true;var ch=mkEl('div','children');isObj?fillObj(ch,data,depth):fillArr(ch,data,depth);var cl=mkEl('div','close-line');cl.appendChild(mkEl('span','jp',closeCh));node.appendChild(ch);node.appendChild(cl);}
+  if(!collapsed)ensure();
+  btn.onclick=function(){if(node.classList.contains('collapsed'))ensure();node.classList.toggle('collapsed');btn.textContent=node.classList.contains('collapsed')?'\u25b8':'\u25be';};
+  return node;
+}
+function renderObject(obj,depth){var k=Object.keys(obj);if(!k.length)return mkEl('span','jp','{}');return buildNode('{','}',k.length+(k.length===1?' key':' keys'),obj,depth,true);}
+function renderArray(arr,depth){if(!arr.length)return mkEl('span','jp','[]');return buildNode('[',']',arr.length+' items',arr,depth,false);}
+document.addEventListener('DOMContentLoaded',function(){document.getElementById('root').appendChild(renderValue(DATA,null,0));});
+"""
 
-def highlight_json_components(json_str: str, id_link_data: Optional[List[Dict]] = None) -> html.Pre:
-    """Syntax-highlight JSON. id_link_data chips make matching ID values inline-clickable."""
-    # Build lookup: (id_field_name, str_value) → chip
-    link_lookup: Dict = {}
-    if id_link_data:
-        for chip in id_link_data:
-            link_lookup[(chip["id_field"], str(chip["value"]))] = chip
 
-    link_counter = [0]   # mutable for closure; ensures unique button idx
-    parts: List = []
-    prev_key: Optional[str] = None
-
-    for m in _TOKEN_RE.finditer(json_str):
-        g = m.group
-        if g(1):
-            # key + colon consumed together by regex group 1+2
-            prev_key = g(1)[1:-1]          # strip quotes to get bare field name
-            parts += [html.Span(g(1), className="jk"), g(2)]
-        elif g(3):
-            raw = g(3)
-            val_str = g(3)[1:-1]           # strip surrounding quotes
-            chip = link_lookup.get((prev_key, val_str)) if prev_key else None
-            if chip:
-                idx = link_counter[0]; link_counter[0] += 1
-                parts.append(html.Button(
-                    raw,
-                    id={"type": "id-link", "idx": idx,
-                        "gid": chip["get_id"][:40],
-                        "par": chip["param"][:40],
-                        "val": val_str[:200]},
-                    n_clicks=0, className="id-link-btn jv",
-                ))
-            else:
-                parts.append(html.Span(raw, className="jv"))
-            prev_key = None
-        elif g(4):
-            num_str = g(4)
-            chip = link_lookup.get((prev_key, num_str)) if prev_key else None
-            if chip:
-                idx = link_counter[0]; link_counter[0] += 1
-                parts.append(html.Button(
-                    num_str,
-                    id={"type": "id-link", "idx": idx,
-                        "gid": chip["get_id"][:40],
-                        "par": chip["param"][:40],
-                        "val": num_str[:200]},
-                    n_clicks=0, className="id-link-btn jn",
-                ))
-            else:
-                parts.append(html.Span(num_str, className="jn"))
-            prev_key = None
-        elif g(5): parts.append(html.Span(g(5), className="jb"));  prev_key = None
-        elif g(6): parts.append(html.Span(g(6), className="jbn")); prev_key = None
-        elif g(7): parts.append(html.Span(g(7), className="jp")); prev_key = None  # punctuation resets context
-        elif g(8): parts.append(g(8))                        # whitespace: keep prev_key
-        else:      parts.append(m.group(0)); prev_key = None
-    return html.Pre(parts, className="json-viewer")
+def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
+    """Build a collapsible interactive JSON tree as a self-contained HTML document.
+    Nodes at depth >= 2 are auto-collapsed; children are lazy-rendered on first expand."""
+    link_lookup: Dict[str, Dict[str, Dict]] = {}
+    if chips:
+        for chip in chips:
+            field = chip["id_field"]
+            if field not in link_lookup:
+                link_lookup[field] = {}
+            link_lookup[field][str(chip["value"])] = {
+                "gid": chip["get_id"],
+                "par": chip["param"],
+            }
+    data_js = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</script>", r"<\/script>")
+    lookup_js = json.dumps(link_lookup, ensure_ascii=False).replace("</script>", r"<\/script>")
+    return "".join([
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>",
+        "<style>", _TREE_CSS, "</style>",
+        "</head><body><div id='root'></div><script>",
+        "const DATA=", data_js, ";",
+        "const LOOKUP=", lookup_js, ";",
+        _TREE_JS,
+        "</script></body></html>",
+    ])
 
 
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 METHOD_COLORS = {"GET": "info", "POST": "warning", "PUT": "primary", "DELETE": "danger", "PATCH": "success"}
-
-# Above this size highlight_json_components produces too many Dash components
-_HIGHLIGHT_LIMIT = 100_000
-
-_HIGHLIGHT_HTML_TMPL = (
-    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-    "<style>"
-    "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
-    "html,body{{margin:0;padding:14px 18px;background:#050810;}}"
-    "pre{{font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;"
-    "line-height:1.7;color:#94a3b8;white-space:pre;margin:0;padding:0;}}"
-    ".jk{{color:#60a5fa}}.jv{{color:#86efac}}.jn{{color:#fbbf24}}"
-    ".jb{{color:#c084fc}}.jbn{{color:#94a3b8}}.jp{{color:#64748b}}"
-    ".id-link{{color:#86efac;cursor:pointer;border-bottom:1px dashed #86efac;}}"
-    ".id-link:hover{{color:#00d4ff;border-bottom-color:#00d4ff;"
-    "text-shadow:0 0 6px rgba(0,212,255,0.5);}}"
-    "::-webkit-scrollbar{{width:6px;height:6px}}"
-    "::-webkit-scrollbar-thumb{{background:rgba(255,255,255,.12);border-radius:3px}}"
-    "::-webkit-scrollbar-track{{background:transparent}}"
-    "*{{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}}"
-    "</style></head><body><pre>{content}</pre></body></html>"
-)
-
-
-def _build_highlighted_html(json_str: str, chips: Optional[List[Dict]] = None) -> str:
-    """Return a full HTML document with syntax-highlighted JSON for large payloads.
-    chips enables inline postMessage links identical in behaviour to id-link-btn."""
-    link_lookup: Dict = {}
-    if chips:
-        for chip in chips:
-            link_lookup[(chip["id_field"], str(chip["value"]))] = chip
-
-    parts: List[str] = []
-    prev_key: Optional[str] = None
-
-    def _link_span(cls: str, raw: str, val: str, chip: Dict) -> str:
-        esc_val = _html_esc.escape(val)
-        gid = _html_esc.escape(chip["get_id"])
-        par = _html_esc.escape(chip["param"])
-        return (
-            f'<span class="id-link {cls}" '
-            f'data-gid="{gid}" data-par="{par}" data-val="{esc_val}" '
-            f"onclick=\"window.parent.postMessage("
-            f"{{type:'id-link',gid:this.dataset.gid,par:this.dataset.par,val:this.dataset.val}},'*')"
-            f'\">{_html_esc.escape(raw)}</span>'
-        )
-
-    for m in _TOKEN_RE.finditer(json_str):
-        g = m.group
-        if g(1):
-            prev_key = g(1)[1:-1]
-            parts.append(f'<span class="jk">{_html_esc.escape(g(1))}</span>{g(2)}')
-        elif g(3):
-            val_str = g(3)[1:-1]
-            chip = link_lookup.get((prev_key, val_str)) if prev_key else None
-            if chip:
-                parts.append(_link_span("jv", g(3), val_str, chip))
-            else:
-                parts.append(f'<span class="jv">{_html_esc.escape(g(3))}</span>')
-            prev_key = None
-        elif g(4):
-            chip = link_lookup.get((prev_key, g(4))) if prev_key else None
-            if chip:
-                parts.append(_link_span("jn", g(4), g(4), chip))
-            else:
-                parts.append(f'<span class="jn">{g(4)}</span>')
-            prev_key = None
-        elif g(5):
-            parts.append(f'<span class="jb">{g(5)}</span>'); prev_key = None
-        elif g(6):
-            parts.append(f'<span class="jbn">{g(6)}</span>'); prev_key = None
-        elif g(7):
-            parts.append(f'<span class="jp">{_html_esc.escape(g(7))}</span>'); prev_key = None
-        else:
-            parts.append(g(8) if g(8) else _html_esc.escape(m.group(0)))
-    return _HIGHLIGHT_HTML_TMPL.format(content="".join(parts))
 
 
 def method_badge(method: str) -> dbc.Badge:
@@ -256,8 +196,6 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
     elif 400 <= code < 500: status_color, icon = "danger",  "bi-x-circle-fill"
     else:                   status_color, icon = "warning", "bi-exclamation-circle-fill"
 
-    json_str = json.dumps(data, indent=2, ensure_ascii=False)
-
     item_count = ""
     if isinstance(data, list):
         item_count = f" · {len(data)} items"
@@ -267,15 +205,11 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                 item_count = f" · {len(v)} items"
                 break
 
-    if len(json_str) <= _HIGHLIGHT_LIMIT:
-        viewer = highlight_json_components(json_str, chips)
-        wrapper_cls = "json-viewer-wrapper"
-    else:
-        viewer = html.Iframe(
-            srcDoc=_build_highlighted_html(json_str, chips),
-            style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
-        )
-        wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
+    viewer = html.Iframe(
+        srcDoc=_build_json_tree_html(data, chips),
+        style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
+    )
+    wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
 
     return html.Div([
         html.Div([
@@ -1156,56 +1090,6 @@ def abort_pagination(n_clicks, page_state):
         return no_update
     state = page_state or {}
     return {**state, "running": False, "error": "Cancelled"}
-
-
-# 12. Inline ID link click — switch to Get endpoint, pre-fill form, execute
-@app.callback(
-    Output("selected-endpoint", "data", allow_duplicate=True),
-    Output("response-container", "children", allow_duplicate=True),
-    Input({"type": "id-link", "idx": ALL, "gid": ALL, "par": ALL, "val": ALL}, "n_clicks"),
-    State("conn-config", "data"),
-    prevent_initial_call=True,
-)
-def handle_id_link_click(n_clicks_list, conn_config):
-    from dash import callback_context as ctx
-    if not ctx.triggered or not any(n for n in n_clicks_list if n):
-        return no_update, no_update
-    try:
-        comp_id = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return no_update, no_update
-
-    get_id = comp_id.get("gid", "")
-    param_name = comp_id.get("par", "")
-    value = comp_id.get("val", "")
-    if not get_id or not param_name or value == "":
-        return no_update, no_update
-
-    endpoint = get_endpoint_by_id(get_id)
-    if not endpoint:
-        return no_update, no_update
-
-    path = endpoint["path"]
-    query_params: Dict[str, Any] = {}
-    if param_name in endpoint.get("path_params", []):
-        path = path.replace(f"{{{param_name}}}", value)
-    else:
-        query_params[param_name] = value
-
-    host, token = _resolve_conn(conn_config)
-    if not token:
-        return no_update, build_error_panel("No auth token.")
-    if not host:
-        return no_update, build_error_panel("No workspace host.")
-
-    result = make_api_call(
-        method=endpoint.get("method", "GET"),
-        path=path, token=token, host=host,
-        query_params=query_params or None,
-    )
-    # Embed prefill so render_endpoint_detail pre-populates the param field
-    endpoint_with_prefill = {**endpoint, "_prefill": {param_name: value}}
-    return endpoint_with_prefill, build_response_panel(result)
 
 
 # 13. Search filter
