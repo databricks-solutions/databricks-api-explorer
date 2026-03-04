@@ -854,13 +854,6 @@ body {
 .navbar-brand { text-decoration: none !important; }
 
 /* ── Topbar loading indicator ─────────────────────────────────────── */
-.topbar-loading-slot {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  margin-left: 12px;
-}
-
 .topbar-spinner {
   display: inline-block;
   width: 16px;
@@ -872,6 +865,10 @@ body {
   animation: spin 0.7s linear infinite;
   box-shadow: 0 0 6px rgba(0,212,255,0.35);
   flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+.topbar-spinner-hidden {
+  opacity: 0;
 }
 
 /* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */

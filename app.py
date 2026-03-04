@@ -353,14 +353,7 @@ TOPBAR = dbc.Navbar(
                 html.Span("Databricks", className="brand-db"),
                 html.Span(" API Explorer", className="brand-rest"),
             ], href="/", className="navbar-brand d-flex align-items-center text-decoration-none"),
-            dcc.Loading(
-                target_components={"response-container": "children"},
-                delay_show=200,
-                delay_hide=0,
-                overlay_style={"display": "none"},
-                custom_spinner=html.Span(className="topbar-spinner"),
-                children=html.Span(className="topbar-loading-slot"),
-            ),
+            html.Span(id="topbar-spinner", className="topbar-spinner topbar-spinner-hidden"),
         ], className="d-flex align-items-center"),
         html.Div([
             html.Span(VERSION, className="version-badge me-2"),
@@ -1194,6 +1187,26 @@ def filter_endpoints(query, btn_ids):
         ) else {"display": "none"}
         for b in btn_ids
     ]
+
+
+# 14. Topbar spinner — clientside, fires immediately on Execute click
+app.clientside_callback(
+    """
+    function(n_clicks, children) {
+        var triggered = window.dash_clientside.callback_context.triggered.map(function(t){ return t.prop_id; });
+        if (triggered.some(function(t){ return t === 'execute-btn.n_clicks'; })) {
+            document.title = '\u23f3 Updating\u2026 \u2014 Databricks API Explorer';
+            return 'topbar-spinner';
+        }
+        document.title = 'Databricks API Explorer';
+        return 'topbar-spinner topbar-spinner-hidden';
+    }
+    """,
+    Output("topbar-spinner", "className"),
+    Input("execute-btn", "n_clicks"),
+    Input("response-container", "children"),
+    prevent_initial_call=True,
+)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
