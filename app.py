@@ -1194,7 +1194,7 @@ app.clientside_callback(
     """
     function(n_clicks, children) {
         var triggered = window.dash_clientside.callback_context.triggered.map(function(t){ return t.prop_id; });
-        if (triggered.some(function(t){ return t === 'execute-btn.n_clicks'; })) {
+        if (triggered.some(function(t){ return t === 'execute-btn.n_clicks'; }) && n_clicks && n_clicks > 0) {
             document.title = '\u23f3 Updating\u2026 \u2014 Databricks API Explorer';
             return 'topbar-spinner';
         }
