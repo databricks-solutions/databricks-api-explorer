@@ -88,9 +88,18 @@ def _find_list_key(data: dict) -> Optional[str]:
 # ── JSON Tree Viewer ──────────────────────────────────────────────────────────
 _TREE_CSS = (
     "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
-    "html,body{margin:0;padding:14px 18px;background:#050810;overflow:auto;}"
+    "html,body{margin:0;padding:0;background:#050810;overflow:auto;}"
     "body{font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;"
     "font-size:12px;line-height:1.7;color:#94a3b8;}"
+    "#toolbar{position:sticky;top:0;background:#050810;border-bottom:1px solid rgba(255,255,255,.07);"
+    "padding:5px 14px;display:flex;align-items:center;gap:6px;z-index:10;}"
+    "#depth-label{color:#475569;font-size:11px;font-style:italic;flex:1;}"
+    ".depth-btn{background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:#00d4ff;"
+    "border-radius:4px;width:22px;height:22px;font-size:15px;line-height:1;cursor:pointer;"
+    "display:inline-flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;}"
+    ".depth-btn:hover{background:rgba(0,212,255,.18);border-color:rgba(0,212,255,.45);}"
+    ".depth-btn:disabled{opacity:.3;cursor:default;}"
+    "#root{padding:10px 14px;}"
     ".tree-node{display:block;}"
     ".node-header{display:block;}"
     ".toggle{display:inline-block;width:14px;text-align:center;cursor:pointer;"
@@ -115,6 +124,7 @@ _TREE_CSS = (
 
 # Raw string — no Python escape processing; JS unicode escapes work as-is in browser.
 _TREE_JS = r"""
+var currentDepth=INITIAL_DEPTH;
 function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
 function idLink(cls,display,gid,par,val){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;e.onclick=function(){window.parent.postMessage({type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val},'*');};return e;}
 function renderValue(val,pKey,depth){
@@ -130,8 +140,9 @@ function renderValue(val,pKey,depth){
 function fillObj(container,obj,depth){Object.keys(obj).forEach(function(k,i,arr){var kv=mkEl('div','kv');kv.appendChild(mkEl('span','jk','"'+k+'"'));kv.appendChild(mkEl('span','jp',': '));kv.appendChild(renderValue(obj[k],k,depth+1));if(i<arr.length-1)kv.appendChild(mkEl('span','jp',','));container.appendChild(kv);});}
 function fillArr(container,arr,depth){arr.forEach(function(v,i,a){var item=mkEl('div','item');item.appendChild(renderValue(v,null,depth+1));if(i<a.length-1)item.appendChild(mkEl('span','jp',','));container.appendChild(item);});}
 function buildNode(openCh,closeCh,label,data,depth,isObj){
-  var collapsed=depth>=3;
+  var collapsed=depth>=currentDepth;
   var node=mkEl('div',collapsed?'tree-node collapsed':'tree-node');
+  node.dataset.depth=depth;
   var hdr=mkEl('div','node-header');
   var btn=mkEl('span','toggle',collapsed?'\u25b8':'\u25be');
   hdr.appendChild(btn);hdr.appendChild(mkEl('span','jp',openCh));hdr.appendChild(mkEl('span','preview jp',' '+label+' '+closeCh));
@@ -139,12 +150,36 @@ function buildNode(openCh,closeCh,label,data,depth,isObj){
   var rendered=false;
   function ensure(){if(rendered)return;rendered=true;var ch=mkEl('div','children');isObj?fillObj(ch,data,depth):fillArr(ch,data,depth);var cl=mkEl('div','close-line');cl.appendChild(mkEl('span','jp',closeCh));node.appendChild(ch);node.appendChild(cl);}
   if(!collapsed)ensure();
+  node._ensure=ensure;
   btn.onclick=function(){if(node.classList.contains('collapsed'))ensure();node.classList.toggle('collapsed');btn.textContent=node.classList.contains('collapsed')?'\u25b8':'\u25be';};
   return node;
 }
 function renderObject(obj,depth){var k=Object.keys(obj);if(!k.length)return mkEl('span','jp','{}');return buildNode('{','}',k.length+(k.length===1?' key':' keys'),obj,depth,true);}
 function renderArray(arr,depth){if(!arr.length)return mkEl('span','jp','[]');return buildNode('[',']',arr.length+' items',arr,depth,false);}
-document.addEventListener('DOMContentLoaded',function(){document.getElementById('root').appendChild(renderValue(DATA,null,0));});
+function applyCollapseLevel(newDepth){
+  currentDepth=newDepth;
+  document.querySelectorAll('.tree-node').forEach(function(node){
+    var d=parseInt(node.dataset.depth);
+    var btn=node.querySelector(':scope > .node-header > .toggle');
+    if(d>=currentDepth){
+      node.classList.add('collapsed');
+      if(btn)btn.textContent='\u25b8';
+    } else if(node.classList.contains('collapsed')){
+      if(node._ensure)node._ensure();
+      node.classList.remove('collapsed');
+      if(btn)btn.textContent='\u25be';
+    }
+  });
+  var lbl=document.getElementById('depth-label');
+  if(lbl)lbl.textContent='Collapse at depth \u2265 '+currentDepth;
+  var btnMinus=document.getElementById('btn-minus');
+  if(btnMinus)btnMinus.disabled=(currentDepth<=1);
+}
+function changeDepth(delta){applyCollapseLevel(Math.max(1,currentDepth+delta));}
+document.addEventListener('DOMContentLoaded',function(){
+  document.getElementById('root').appendChild(renderValue(DATA,null,0));
+  applyCollapseLevel(currentDepth);
+});
 """
 
 
@@ -166,9 +201,16 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
     return "".join([
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
         "<style>", _TREE_CSS, "</style>",
-        "</head><body><div id='root'></div><script>",
+        "</head><body>",
+        "<div id='toolbar'>",
+        "<button class='depth-btn' id='btn-minus' onclick='changeDepth(-1)' title='Collapse one level more'>\u2212</button>",
+        "<span id='depth-label'></span>",
+        "<button class='depth-btn' onclick='changeDepth(+1)' title='Expand one level more'>+</button>",
+        "</div>",
+        "<div id='root'></div><script>",
         "const DATA=", data_js, ";",
         "const LOOKUP=", lookup_js, ";",
+        "const INITIAL_DEPTH=3;",
         _TREE_JS,
         "</script></body></html>",
     ])
