@@ -10,6 +10,7 @@ Run modes:
 import json
 import re
 import subprocess
+import time
 from typing import Any, Dict, List, Optional
 
 import dash
@@ -44,6 +45,27 @@ server = app.server
 
 # Default connection config
 _DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
+
+
+# ── JSON Syntax Highlighter ───────────────────────────────────────────────────
+# ── Pagination helpers ────────────────────────────────────────────────────────
+_SKIP_LIST_KEYS = frozenset({"schemas"})
+
+
+def _detect_next_page_token(data: Any) -> Optional[str]:
+    """Return next_page_token if the response has more pages, else None."""
+    if not isinstance(data, dict):
+        return None
+    token = data.get("next_page_token")
+    return token if token and isinstance(token, str) else None
+
+
+def _find_list_key(data: dict) -> Optional[str]:
+    """Find the key holding the main item list in a paginated response."""
+    for k, v in data.items():
+        if isinstance(v, list) and k not in _SKIP_LIST_KEYS:
+            return k
+    return None
 
 
 # ── JSON Syntax Highlighter ───────────────────────────────────────────────────
@@ -153,6 +175,8 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                 item_count = f" · {len(v)} items"
                 break
 
+    next_token = _detect_next_page_token(data)
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -160,6 +184,10 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(f"{ms}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(" [truncated]", className="truncation-notice") if truncated else None,
+            html.Button(
+                [html.I(className="bi bi-collection me-1"), "Load all pages"],
+                id="load-all-btn", n_clicks=0, className="load-all-btn",
+            ) if next_token else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(highlight_json_components(json_str, chips), className="json-viewer-wrapper"),
@@ -408,6 +436,7 @@ app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
+    dcc.Store(id="last-request", data=None),
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
@@ -743,6 +772,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 # 10. Execute API call
 @app.callback(
     Output("response-container", "children"),
+    Output("last-request", "data"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -753,7 +783,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
-        return no_update
+        return no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -773,7 +803,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required.")
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -782,23 +812,96 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}")
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu.")
+        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu.")
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
         query_params=params if method == "GET" else None, body=body,
     )
     chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
-    return build_response_panel(result, chips)
+    last_req = {
+        "path": path,
+        "method": method,
+        "query_params": params if method == "GET" else None,
+        "body": body,
+        "endpoint_id": endpoint.get("id", ""),
+        "initial_data": result["data"],
+        "elapsed_ms": result["elapsed_ms"],
+        "status_code": result["status_code"],
+        "url": result.get("url", ""),
+    }
+    return build_response_panel(result, chips), last_req
 
 
-# 11. Inline ID link click — switch to Get endpoint, pre-fill form, execute
+# 11. Load all pages of a paginated response
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Input("load-all-btn", "n_clicks"),
+    State("last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def load_all_pages(n_clicks, last_req, conn_config):
+    if not n_clicks or not last_req:
+        return no_update
+
+    initial_data = last_req.get("initial_data", {})
+    list_key = _find_list_key(initial_data)
+    if not list_key:
+        return no_update
+
+    all_items = list(initial_data.get(list_key, []))
+    next_token = _detect_next_page_token(initial_data)
+
+    host, token = _resolve_conn(conn_config)
+    if not token or not host:
+        return no_update
+
+    path = last_req["path"]
+    method = last_req["method"]
+    base_params = dict(last_req.get("query_params") or {})
+    body = last_req.get("body")
+    endpoint_id = last_req.get("endpoint_id", "")
+
+    t0 = time.perf_counter()
+    page_count = 0
+
+    while next_token and page_count < 50:
+        r = make_api_call(
+            method, path, token, host,
+            query_params={**base_params, "page_token": next_token},
+            body=body,
+        )
+        if not r["success"]:
+            break
+        page_data = r["data"]
+        all_items.extend(page_data.get(list_key, []))
+        next_token = _detect_next_page_token(page_data)
+        page_count += 1
+
+    merged_data = {**initial_data, list_key: all_items}
+    merged_data.pop("next_page_token", None)
+    merged_data.pop("has_more", None)
+
+    merged_result = {
+        "status_code": last_req["status_code"],
+        "elapsed_ms": last_req.get("elapsed_ms", 0) + int((time.perf_counter() - t0) * 1000),
+        "data": merged_data,
+        "success": True,
+        "error": None,
+        "url": last_req["url"],
+    }
+    chips = extract_chips(endpoint_id, merged_data)
+    return build_response_panel(merged_result, chips)
+
+
+# 12. Inline ID link click — switch to Get endpoint, pre-fill form, execute
 @app.callback(
     Output("selected-endpoint", "data", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
@@ -848,7 +951,7 @@ def handle_id_link_click(n_clicks_list, conn_config):
     return endpoint_with_prefill, build_response_panel(result)
 
 
-# 12. Search filter
+# 13. Search filter
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "style"),
     Input("search-input", "value"),

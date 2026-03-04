@@ -502,6 +502,27 @@ body {
 .jbn { color: #94a3b8; }       /* null → muted */
 .jp  { color: #64748b; }       /* punctuation */
 
+/* ── Load all pages button ────────────────────────────────────────── */
+.load-all-btn {
+  background: rgba(0,212,255,0.07);
+  border: 1px solid rgba(0,212,255,0.25);
+  color: var(--cyan);
+  border-radius: var(--r-md);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+}
+.load-all-btn:hover {
+  background: rgba(0,212,255,0.16);
+  border-color: rgba(0,212,255,0.5);
+  box-shadow: 0 0 8px rgba(0,212,255,0.18);
+}
+
 /* ── Inline ID links (list → get navigation) ──────────────────────── */
 .id-link-btn {
   display: inline;
