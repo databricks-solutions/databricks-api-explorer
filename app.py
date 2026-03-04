@@ -508,7 +508,8 @@ app.layout = html.Div([
     dcc.Store(id="selected-endpoint"),
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
     dcc.Store(id="last-request", data=None),
-    dcc.Store(id="page-state", data={"running": False}),
+    dcc.Store(id="page-trigger", data={}),          # written only by start_pagination
+    dcc.Store(id="page-state", data={"running": False}),  # written only by tick_fetch (primary)
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
@@ -913,53 +914,96 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     return build_response_panel(result, chips), last_req
 
 
-# 11. Auto-start pagination whenever last-request changes (fires after every execute)
+# 11. Signal tick_fetch to start a new pagination run whenever execute fires.
+#     Writes to page-trigger (separate store) so tick_fetch stays the sole
+#     primary writer of page-state — ensuring sync_status_bar fires on every tick.
 @app.callback(
-    Output("page-state", "data"),
+    Output("page-trigger", "data"),
     Input("last-request", "data"),
     prevent_initial_call=True,
 )
 def start_pagination(last_req):
     if not last_req:
-        return {"running": False}
+        return {}
     initial_data = last_req.get("initial_data", {})
     next_token = _detect_next_page_token(initial_data)
-    if not next_token:
-        return {"running": False}
-    list_key = _find_list_key(initial_data)
-    if not list_key:
-        return {"running": False}
-    items = list(initial_data.get(list_key, []))
+    list_key = _find_list_key(initial_data) if next_token else None
     return {
-        "running": True,
-        "pages_done": 0,
-        "total_items": len(items),
-        "items": items,
+        "run_id": time.time(),
         "next_token": next_token,
         "list_key": list_key,
-        "elapsed_ms": 0,
+        "initial_items": list(initial_data.get(list_key, [])) if list_key else [],
+        "initial_data": initial_data,
         "endpoint_id": last_req.get("endpoint_id", ""),
         "status_code": last_req.get("status_code", 200),
         "url": last_req.get("url", ""),
-        "initial_data": initial_data,
         "path": last_req.get("path", ""),
         "method": last_req.get("method", "GET"),
         "query_params": last_req.get("query_params"),
         "body": last_req.get("body"),
-        "error": None,
     }
 
 
-# 11b. Fetch one page per interval tick (allow_duplicate — start_pagination is primary writer)
+# 11b. PRIMARY writer of page-state — no allow_duplicate, so sync_status_bar
+#      and render_when_done are reliably triggered on every page fetch.
 @app.callback(
-    Output("page-state", "data", allow_duplicate=True),
+    Output("page-state", "data"),          # PRIMARY — no allow_duplicate
     Input("page-ticker", "n_intervals"),
+    State("page-trigger", "data"),
     State("page-state", "data"),
     State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def tick_fetch(n_intervals, page_state, conn_config):
-    state = page_state or {}
+def tick_fetch(n_intervals, page_trigger, page_state, conn_config):
+    trigger = page_trigger or {}
+    state   = page_state  or {}
+
+    new_run = trigger.get("run_id") and trigger["run_id"] != state.get("run_id")
+
+    # ── Start a new run when trigger signals a fresh execute ──────────
+    if new_run:
+        if not trigger.get("next_token") or not trigger.get("list_key"):
+            # API doesn't paginate — just reset state
+            return {"running": False, "run_id": trigger["run_id"]}
+
+        host, token = _resolve_conn(conn_config)
+        if not token or not host:
+            return {"running": False, "run_id": trigger["run_id"], "error": "No auth token"}
+
+        items = list(trigger.get("initial_items", []))
+        t0 = time.perf_counter()
+        r = make_api_call(
+            trigger["method"], trigger["path"], token, host,
+            query_params={**(trigger.get("query_params") or {}), "page_token": trigger["next_token"]},
+            body=trigger.get("body"),
+        )
+        elapsed = int((time.perf_counter() - t0) * 1000)
+
+        base = {
+            "run_id":      trigger["run_id"],
+            "list_key":    trigger["list_key"],
+            "initial_data": trigger.get("initial_data", {}),
+            "endpoint_id": trigger.get("endpoint_id", ""),
+            "status_code": trigger.get("status_code", 200),
+            "url":         trigger.get("url", ""),
+            "path":        trigger["path"],
+            "method":      trigger["method"],
+            "query_params": trigger.get("query_params"),
+            "body":        trigger.get("body"),
+        }
+        if not r["success"]:
+            return {**base, "running": False, "pages_done": 0,
+                    "items": items, "total_items": len(items),
+                    "elapsed_ms": elapsed, "error": r.get("error", "API error")}
+
+        page_data  = r["data"]
+        new_items  = items + list(page_data.get(trigger["list_key"], []))
+        next_token = _detect_next_page_token(page_data)
+        return {**base, "running": next_token is not None, "pages_done": 1,
+                "total_items": len(new_items), "items": new_items,
+                "next_token": next_token, "elapsed_ms": elapsed, "error": None}
+
+    # ── Continue an existing run ───────────────────────────────────────
     if not state.get("running") or not state.get("next_token"):
         return no_update
     if state.get("pages_done", 0) >= 50:
@@ -978,20 +1022,22 @@ def tick_fetch(n_intervals, page_state, conn_config):
     elapsed = int((time.perf_counter() - t0) * 1000)
 
     if not r["success"]:
-        return {**state, "running": False, "error": r.get("error", "API error"), "elapsed_ms": state["elapsed_ms"] + elapsed}
+        return {**state, "running": False,
+                "error": r.get("error", "API error"),
+                "elapsed_ms": state["elapsed_ms"] + elapsed}
 
-    page_data = r["data"]
-    new_items = list(state["items"]) + list(page_data.get(state["list_key"], []))
+    page_data  = r["data"]
+    new_items  = list(state["items"]) + list(page_data.get(state["list_key"], []))
     next_token = _detect_next_page_token(page_data)
     return {
         **state,
-        "running": next_token is not None,
+        "running":    next_token is not None,
         "pages_done": state["pages_done"] + 1,
         "total_items": len(new_items),
-        "items": new_items,
+        "items":      new_items,
         "next_token": next_token,
         "elapsed_ms": state["elapsed_ms"] + elapsed,
-        "error": None,
+        "error":      None,
     }
 
 
