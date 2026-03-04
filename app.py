@@ -130,7 +130,7 @@ function renderValue(val,pKey,depth){
 function fillObj(container,obj,depth){Object.keys(obj).forEach(function(k,i,arr){var kv=mkEl('div','kv');kv.appendChild(mkEl('span','jk','"'+k+'"'));kv.appendChild(mkEl('span','jp',': '));kv.appendChild(renderValue(obj[k],k,depth+1));if(i<arr.length-1)kv.appendChild(mkEl('span','jp',','));container.appendChild(kv);});}
 function fillArr(container,arr,depth){arr.forEach(function(v,i,a){var item=mkEl('div','item');item.appendChild(renderValue(v,null,depth+1));if(i<a.length-1)item.appendChild(mkEl('span','jp',','));container.appendChild(item);});}
 function buildNode(openCh,closeCh,label,data,depth,isObj){
-  var collapsed=depth>=2;
+  var collapsed=depth>=3;
   var node=mkEl('div',collapsed?'tree-node collapsed':'tree-node');
   var hdr=mkEl('div','node-header');
   var btn=mkEl('span','toggle',collapsed?'\u25b8':'\u25be');
