@@ -7,6 +7,7 @@ Run modes:
   Databricks App → auth via OBO (x-forwarded-access-token header)
 """
 
+import html as _html_esc
 import json
 import re
 import subprocess
@@ -160,8 +161,46 @@ def highlight_json_components(json_str: str, id_link_data: Optional[List[Dict]] 
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 METHOD_COLORS = {"GET": "info", "POST": "warning", "PUT": "primary", "DELETE": "danger", "PATCH": "success"}
 
-# Above this size syntax-highlight creates too many Dash components to serialize
+# Above this size highlight_json_components produces too many Dash components
 _HIGHLIGHT_LIMIT = 100_000
+
+_HIGHLIGHT_HTML_TMPL = (
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<style>"
+    "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
+    "html,body{{margin:0;padding:14px 18px;background:#050810;}}"
+    "pre{{font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;"
+    "line-height:1.7;color:#94a3b8;white-space:pre;margin:0;padding:0;}}"
+    ".jk{{color:#60a5fa}}.jv{{color:#86efac}}.jn{{color:#fbbf24}}"
+    ".jb{{color:#c084fc}}.jbn{{color:#94a3b8}}.jp{{color:#64748b}}"
+    "::-webkit-scrollbar{{width:6px;height:6px}}"
+    "::-webkit-scrollbar-thumb{{background:rgba(255,255,255,.12);border-radius:3px}}"
+    "::-webkit-scrollbar-track{{background:transparent}}"
+    "*{{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}}"
+    "</style></head><body><pre>{content}</pre></body></html>"
+)
+
+
+def _build_highlighted_html(json_str: str) -> str:
+    """Return a full HTML document with syntax-highlighted JSON for large payloads."""
+    parts: List[str] = []
+    for m in _TOKEN_RE.finditer(json_str):
+        g = m.group
+        if g(1):
+            parts.append(f'<span class="jk">{_html_esc.escape(g(1))}</span>{g(2)}')
+        elif g(3):
+            parts.append(f'<span class="jv">{_html_esc.escape(g(3))}</span>')
+        elif g(4):
+            parts.append(f'<span class="jn">{g(4)}</span>')
+        elif g(5):
+            parts.append(f'<span class="jb">{g(5)}</span>')
+        elif g(6):
+            parts.append(f'<span class="jbn">{g(6)}</span>')
+        elif g(7):
+            parts.append(f'<span class="jp">{_html_esc.escape(g(7))}</span>')
+        else:
+            parts.append(g(8) if g(8) else _html_esc.escape(m.group(0)))
+    return _HIGHLIGHT_HTML_TMPL.format(content="".join(parts))
 
 
 def method_badge(method: str) -> dbc.Badge:
@@ -195,8 +234,13 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
 
     if len(json_str) <= _HIGHLIGHT_LIMIT:
         viewer = highlight_json_components(json_str, chips)
+        wrapper_cls = "json-viewer-wrapper"
     else:
-        viewer = html.Pre(json_str, className="json-viewer")
+        viewer = html.Iframe(
+            srcDoc=_build_highlighted_html(json_str),
+            style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
+        )
+        wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
 
     return html.Div([
         html.Div([
@@ -206,7 +250,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
-        html.Div(viewer, className="json-viewer-wrapper"),
+        html.Div(viewer, className=wrapper_cls),
     ], className="response-container")
 
 
@@ -466,7 +510,14 @@ app.layout = html.Div([
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
             html.Div([
                 html.Div(id="fetch-status-bar", className="fetch-status-bar"),
-                html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
+                dcc.Loading(
+                    html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
+                    type="circle",
+                    color="#00d4ff",
+                    delay_show=200,
+                    parent_style={"flex": "1", "display": "flex", "flexDirection": "column",
+                                  "overflow": "hidden", "minHeight": "0"},
+                ),
             ], className="response-panel"),
         ], className="main-content"),
     ], className="app-body"),

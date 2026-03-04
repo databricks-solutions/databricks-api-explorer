@@ -488,6 +488,12 @@ body {
 .json-viewer-wrapper::-webkit-scrollbar { width: 6px; height: 6px; }
 .json-viewer-wrapper::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
+/* Iframe variant — no padding, overflow handled by iframe itself */
+.json-viewer-iframe {
+  padding: 0;
+  overflow: hidden;
+}
+
 .json-viewer {
   font-family: var(--font-mono) !important;
   font-size: 12px !important;
@@ -846,6 +852,20 @@ body {
 /* dbc overrides */
 .badge { letter-spacing: 0.02em; }
 .navbar-brand { text-decoration: none !important; }
+
+/* ── dcc.Loading spinner overlay ─────────────────────────────────── */
+._dash-loading-callback {
+  position: absolute !important;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5,8,16,0.65);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 10;
+  pointer-events: none;
+}
 
 /* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */
 /* The PlotlyCloud button is the only .dash-debug-menu__button without an id */
