@@ -503,6 +503,7 @@ app.layout = html.Div([
     dcc.Store(id="last-request", data=None),
     dcc.Store(id="page-trigger", data={}),          # written only by start_pagination
     dcc.Store(id="page-state", data={"running": False}),  # written only by tick_fetch (primary)
+    dcc.Store(id="spinner-off", data=0),            # written by execute_api_call to signal done
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
@@ -841,6 +842,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 @app.callback(
     Output("response-container", "children"),
     Output("last-request", "data"),
+    Output("spinner-off", "data"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -851,7 +853,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
-        return no_update, no_update
+        return no_update, no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -871,7 +873,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), no_update
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time()
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -880,13 +882,13 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), no_update
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time()
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update
+        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time()
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time()
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
@@ -904,7 +906,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         "status_code": result["status_code"],
         "url": result.get("url", ""),
     }
-    return build_response_panel(result, chips), last_req
+    return build_response_panel(result, chips), last_req, time.time()
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -1192,7 +1194,7 @@ def filter_endpoints(query, btn_ids):
 # 14. Topbar spinner — clientside, fires immediately on Execute click
 app.clientside_callback(
     """
-    function(n_clicks, children) {
+    function(n_clicks, spinner_off) {
         var triggered = window.dash_clientside.callback_context.triggered.map(function(t){ return t.prop_id; });
         if (triggered.some(function(t){ return t === 'execute-btn.n_clicks'; }) && n_clicks && n_clicks > 0) {
             document.title = '\u23f3 Updating\u2026 \u2014 Databricks API Explorer';
@@ -1204,7 +1206,7 @@ app.clientside_callback(
     """,
     Output("topbar-spinner", "className"),
     Input("execute-btn", "n_clicks"),
-    Input("response-container", "children"),
+    Input("spinner-off", "data"),
     prevent_initial_call=True,
 )
 
