@@ -437,6 +437,8 @@ app.layout = html.Div([
     dcc.Store(id="selected-endpoint"),
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
     dcc.Store(id="last-request", data=None),
+    dcc.Store(id="page-state", data={"running": False}),
+    dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
@@ -446,6 +448,7 @@ app.layout = html.Div([
         html.Div([
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
             html.Div([
+                html.Div(id="fetch-status-bar", className="fetch-status-bar"),
                 html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
             ], className="response-panel"),
         ], className="main-content"),
@@ -839,66 +842,195 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     return build_response_panel(result, chips), last_req
 
 
-# 11. Load all pages of a paginated response
+# 11. Start paginated load — initialises page-state (PRIMARY writer)
 @app.callback(
-    Output("response-container", "children", allow_duplicate=True),
+    Output("page-state", "data"),
     Input("load-all-btn", "n_clicks"),
     State("last-request", "data"),
-    State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def load_all_pages(n_clicks, last_req, conn_config):
+def start_pagination(n_clicks, last_req):
     if not n_clicks or not last_req:
         return no_update
-
     initial_data = last_req.get("initial_data", {})
     list_key = _find_list_key(initial_data)
     if not list_key:
         return no_update
-
-    all_items = list(initial_data.get(list_key, []))
     next_token = _detect_next_page_token(initial_data)
+    if not next_token:
+        return no_update
+    items = list(initial_data.get(list_key, []))
+    return {
+        "running": True,
+        "pages_done": 0,
+        "total_items": len(items),
+        "items": items,
+        "next_token": next_token,
+        "list_key": list_key,
+        "elapsed_ms": 0,
+        "endpoint_id": last_req.get("endpoint_id", ""),
+        "status_code": last_req.get("status_code", 200),
+        "url": last_req.get("url", ""),
+        "initial_data": initial_data,
+        "path": last_req.get("path", ""),
+        "method": last_req.get("method", "GET"),
+        "query_params": last_req.get("query_params"),
+        "body": last_req.get("body"),
+        "error": None,
+    }
+
+
+# 11b. Fetch one page per interval tick (allow_duplicate — start_pagination is primary writer)
+@app.callback(
+    Output("page-state", "data", allow_duplicate=True),
+    Input("page-ticker", "n_intervals"),
+    State("page-state", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def tick_fetch(n_intervals, page_state, conn_config):
+    state = page_state or {}
+    if not state.get("running") or not state.get("next_token"):
+        return no_update
+    if state.get("pages_done", 0) >= 50:
+        return {**state, "running": False, "error": "Reached 50-page limit"}
 
     host, token = _resolve_conn(conn_config)
     if not token or not host:
-        return no_update
-
-    path = last_req["path"]
-    method = last_req["method"]
-    base_params = dict(last_req.get("query_params") or {})
-    body = last_req.get("body")
-    endpoint_id = last_req.get("endpoint_id", "")
+        return {**state, "running": False, "error": "No auth token"}
 
     t0 = time.perf_counter()
-    page_count = 0
+    r = make_api_call(
+        state["method"], state["path"], token, host,
+        query_params={**(state.get("query_params") or {}), "page_token": state["next_token"]},
+        body=state.get("body"),
+    )
+    elapsed = int((time.perf_counter() - t0) * 1000)
 
-    while next_token and page_count < 50:
-        r = make_api_call(
-            method, path, token, host,
-            query_params={**base_params, "page_token": next_token},
-            body=body,
-        )
-        if not r["success"]:
-            break
-        page_data = r["data"]
-        all_items.extend(page_data.get(list_key, []))
-        next_token = _detect_next_page_token(page_data)
-        page_count += 1
+    if not r["success"]:
+        return {**state, "running": False, "error": r.get("error", "API error"), "elapsed_ms": state["elapsed_ms"] + elapsed}
 
-    merged_data = {**initial_data, list_key: all_items}
+    page_data = r["data"]
+    new_items = list(state["items"]) + list(page_data.get(state["list_key"], []))
+    next_token = _detect_next_page_token(page_data)
+    return {
+        **state,
+        "running": next_token is not None,
+        "pages_done": state["pages_done"] + 1,
+        "total_items": len(new_items),
+        "items": new_items,
+        "next_token": next_token,
+        "elapsed_ms": state["elapsed_ms"] + elapsed,
+        "error": None,
+    }
+
+
+# 11c. Enable/disable ticker based on page-state
+@app.callback(
+    Output("page-ticker", "disabled"),
+    Input("page-state", "data"),
+    prevent_initial_call=True,
+)
+def sync_ticker(page_state):
+    return not (page_state or {}).get("running", False)
+
+
+# 11d. Update status bar from page-state
+@app.callback(
+    Output("fetch-status-bar", "children"),
+    Input("page-state", "data"),
+    prevent_initial_call=True,
+)
+def sync_status_bar(page_state):
+    state = page_state or {}
+    total = state.get("total_items", 0)
+    elapsed = state.get("elapsed_ms", 0)
+
+    if not state.get("running") and not total:
+        return None
+
+    if state.get("error") == "Cancelled":
+        return html.Div([
+            html.I(className="bi bi-slash-circle me-2"),
+            f"Cancelled — {total:,} items loaded",
+        ], className="fetch-status-inner cancelled")
+
+    if state.get("error"):
+        return html.Div([
+            html.I(className="bi bi-x-circle-fill me-2"),
+            f"Error: {state['error']} — {total:,} items loaded",
+        ], className="fetch-status-inner error")
+
+    if state.get("running"):
+        next_page = state.get("pages_done", 0) + 2   # page 1 = initial, next = pages_done+2
+        return html.Div([
+            html.Span(className="status-spinner me-2"),
+            f"Fetching page {next_page}… {total:,} items so far",
+            html.Button(
+                [html.I(className="bi bi-x-lg me-1"), "Abort"],
+                id="abort-btn", n_clicks=0, className="abort-btn ms-3",
+            ),
+        ], className="fetch-status-inner loading")
+
+    return html.Div([
+        html.I(className="bi bi-check-circle-fill me-2"),
+        f"All pages loaded — {total:,} items · {elapsed}ms",
+    ], className="fetch-status-inner done")
+
+
+# 11e. Render final merged result when pagination completes
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Input("page-state", "data"),
+    prevent_initial_call=True,
+)
+def render_when_done(page_state):
+    state = page_state or {}
+    if state.get("running") or not state.get("items"):
+        return no_update
+    initial_data = state.get("initial_data", {})
+    list_key = state.get("list_key")
+    if not list_key:
+        return no_update
+    merged_data = {**initial_data, list_key: state["items"]}
     merged_data.pop("next_page_token", None)
     merged_data.pop("has_more", None)
-
     merged_result = {
-        "status_code": last_req["status_code"],
-        "elapsed_ms": last_req.get("elapsed_ms", 0) + int((time.perf_counter() - t0) * 1000),
+        "status_code": state.get("status_code", 200),
+        "elapsed_ms": state.get("elapsed_ms", 0),
         "data": merged_data,
         "success": True,
         "error": None,
-        "url": last_req["url"],
+        "url": state.get("url", ""),
     }
-    chips = extract_chips(endpoint_id, merged_data)
+    chips = extract_chips(state.get("endpoint_id", ""), merged_data)
     return build_response_panel(merged_result, chips)
+
+
+# 11f. Clear page-state (and thus status bar) when a new execute starts
+@app.callback(
+    Output("page-state", "data", allow_duplicate=True),
+    Input("execute-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def reset_page_state(n_clicks):
+    if not n_clicks:
+        return no_update
+    return {"running": False}
+
+
+# 11g. Abort button — cancel in-flight pagination
+@app.callback(
+    Output("page-state", "data", allow_duplicate=True),
+    Input("abort-btn", "n_clicks"),
+    State("page-state", "data"),
+    prevent_initial_call=True,
+)
+def abort_pagination(n_clicks, page_state):
+    if not n_clicks:
+        return no_update
+    state = page_state or {}
+    return {**state, "running": False, "error": "Cancelled"}
 
 
 # 12. Inline ID link click — switch to Get endpoint, pre-fill form, execute

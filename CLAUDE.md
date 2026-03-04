@@ -56,7 +56,7 @@ The entire UI and all server-side logic live here. Key sections:
 
 **Inline ID links + `_prefill` flow**: When a list API succeeds, `extract_chips()` builds a chip list. `highlight_json_components()` renders matching field values as `html.Button` elements with component IDs embedding `gid`, `par`, `val`. Clicking one fires `handle_id_link_click`, which: (1) calls the Get API and updates `response-container`; (2) writes `{...endpoint, "_prefill": {param_name: value}}` to `selected-endpoint`. That store change triggers both `sync_active_button` (highlights the Get button) and `render_endpoint_detail` (reads `_prefill`, calls `build_param_form(endpoint, prefill)` with the ID pre-filled).
 
-**Default CLI profile** is hardcoded as `DATABRICKS_PROFILE = "guido-demo-azure"` in `auth.py`. Change this when working with a different workspace.
+**Default CLI profile** is resolved at startup in `auth.py` as the first profile found in `~/.databrickscfg` (falls back to `"DEFAULT"` if the file is absent or empty). No hardcoding needed.
 
 ## Assets
 

@@ -16,8 +16,6 @@ import requests
 # ── Detection ─────────────────────────────────────────────────────────────────
 IS_DATABRICKS_APP: bool = bool(os.getenv("DATABRICKS_CLIENT_SECRET"))
 
-DATABRICKS_PROFILE = "guido-demo-azure"
-
 
 # ── CLI Profile discovery ──────────────────────────────────────────────────────
 
@@ -29,7 +27,7 @@ def get_cli_profiles() -> List[str]:
     """
     path = os.path.expanduser("~/.databrickscfg")
     if not os.path.exists(path):
-        return [DATABRICKS_PROFILE]
+        return ["DEFAULT"]
 
     profiles: List[str] = []
     try:
@@ -43,7 +41,11 @@ def get_cli_profiles() -> List[str]:
     except Exception:
         pass
 
-    return profiles if profiles else [DATABRICKS_PROFILE]
+    return profiles if profiles else ["DEFAULT"]
+
+
+# Default to the first profile found in ~/.databrickscfg
+DATABRICKS_PROFILE: str = get_cli_profiles()[0]
 
 
 # ── Connection resolution ──────────────────────────────────────────────────────
