@@ -1191,21 +1191,29 @@ def filter_endpoints(query, btn_ids):
     ]
 
 
-# 14. Topbar spinner — clientside, fires immediately on Execute click
+# 14a. Show spinner immediately when Execute is clicked
 app.clientside_callback(
     """
-    function(n_clicks, spinner_off) {
-        var triggered = window.dash_clientside.callback_context.triggered.map(function(t){ return t.prop_id; });
-        if (triggered.some(function(t){ return t === 'execute-btn.n_clicks'; }) && n_clicks && n_clicks > 0) {
-            document.title = '\u23f3 Updating\u2026 \u2014 Databricks API Explorer';
-            return 'topbar-spinner';
-        }
-        document.title = 'Databricks API Explorer';
-        return 'topbar-spinner topbar-spinner-hidden';
+    function(n_clicks) {
+        if (!n_clicks || n_clicks <= 0) return window.dash_clientside.no_update;
+        document.title = '\u23f3 Updating\u2026 \u2014 Databricks API Explorer';
+        return 'topbar-spinner';
     }
     """,
     Output("topbar-spinner", "className"),
     Input("execute-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+# 14b. Hide spinner when the API call completes (spinner-off written by execute_api_call)
+app.clientside_callback(
+    """
+    function(spinner_off) {
+        document.title = 'Databricks API Explorer';
+        return 'topbar-spinner topbar-spinner-hidden';
+    }
+    """,
+    Output("topbar-spinner", "className", allow_duplicate=True),
     Input("spinner-off", "data"),
     prevent_initial_call=True,
 )
