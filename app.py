@@ -160,6 +160,9 @@ def highlight_json_components(json_str: str, id_link_data: Optional[List[Dict]] 
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 METHOD_COLORS = {"GET": "info", "POST": "warning", "PUT": "primary", "DELETE": "danger", "PATCH": "success"}
 
+# Above this size syntax-highlight creates too many Dash components to serialize
+_HIGHLIGHT_LIMIT = 100_000
+
 
 def method_badge(method: str) -> dbc.Badge:
     return dbc.Badge(method, color=METHOD_COLORS.get(method, "secondary"), className="method-badge")
@@ -190,6 +193,11 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                 item_count = f" · {len(v)} items"
                 break
 
+    if len(json_str) <= _HIGHLIGHT_LIMIT:
+        viewer = highlight_json_components(json_str, chips)
+    else:
+        viewer = html.Pre(json_str, className="json-viewer")
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -198,7 +206,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
-        html.Div(highlight_json_components(json_str, chips), className="json-viewer-wrapper"),
+        html.Div(viewer, className="json-viewer-wrapper"),
     ], className="response-container")
 
 
