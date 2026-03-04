@@ -173,6 +173,9 @@ _HIGHLIGHT_HTML_TMPL = (
     "line-height:1.7;color:#94a3b8;white-space:pre;margin:0;padding:0;}}"
     ".jk{{color:#60a5fa}}.jv{{color:#86efac}}.jn{{color:#fbbf24}}"
     ".jb{{color:#c084fc}}.jbn{{color:#94a3b8}}.jp{{color:#64748b}}"
+    ".id-link{{color:#86efac;cursor:pointer;border-bottom:1px dashed #86efac;}}"
+    ".id-link:hover{{color:#00d4ff;border-bottom-color:#00d4ff;"
+    "text-shadow:0 0 6px rgba(0,212,255,0.5);}}"
     "::-webkit-scrollbar{{width:6px;height:6px}}"
     "::-webkit-scrollbar-thumb{{background:rgba(255,255,255,.12);border-radius:3px}}"
     "::-webkit-scrollbar-track{{background:transparent}}"
@@ -181,23 +184,55 @@ _HIGHLIGHT_HTML_TMPL = (
 )
 
 
-def _build_highlighted_html(json_str: str) -> str:
-    """Return a full HTML document with syntax-highlighted JSON for large payloads."""
+def _build_highlighted_html(json_str: str, chips: Optional[List[Dict]] = None) -> str:
+    """Return a full HTML document with syntax-highlighted JSON for large payloads.
+    chips enables inline postMessage links identical in behaviour to id-link-btn."""
+    link_lookup: Dict = {}
+    if chips:
+        for chip in chips:
+            link_lookup[(chip["id_field"], str(chip["value"]))] = chip
+
     parts: List[str] = []
+    prev_key: Optional[str] = None
+
+    def _link_span(cls: str, raw: str, val: str, chip: Dict) -> str:
+        esc_val = _html_esc.escape(val)
+        gid = _html_esc.escape(chip["get_id"])
+        par = _html_esc.escape(chip["param"])
+        return (
+            f'<span class="id-link {cls}" '
+            f'data-gid="{gid}" data-par="{par}" data-val="{esc_val}" '
+            f"onclick=\"window.parent.postMessage("
+            f"{{type:'id-link',gid:this.dataset.gid,par:this.dataset.par,val:this.dataset.val}},'*')"
+            f'\">{_html_esc.escape(raw)}</span>'
+        )
+
     for m in _TOKEN_RE.finditer(json_str):
         g = m.group
         if g(1):
+            prev_key = g(1)[1:-1]
             parts.append(f'<span class="jk">{_html_esc.escape(g(1))}</span>{g(2)}')
         elif g(3):
-            parts.append(f'<span class="jv">{_html_esc.escape(g(3))}</span>')
+            val_str = g(3)[1:-1]
+            chip = link_lookup.get((prev_key, val_str)) if prev_key else None
+            if chip:
+                parts.append(_link_span("jv", g(3), val_str, chip))
+            else:
+                parts.append(f'<span class="jv">{_html_esc.escape(g(3))}</span>')
+            prev_key = None
         elif g(4):
-            parts.append(f'<span class="jn">{g(4)}</span>')
+            chip = link_lookup.get((prev_key, g(4))) if prev_key else None
+            if chip:
+                parts.append(_link_span("jn", g(4), g(4), chip))
+            else:
+                parts.append(f'<span class="jn">{g(4)}</span>')
+            prev_key = None
         elif g(5):
-            parts.append(f'<span class="jb">{g(5)}</span>')
+            parts.append(f'<span class="jb">{g(5)}</span>'); prev_key = None
         elif g(6):
-            parts.append(f'<span class="jbn">{g(6)}</span>')
+            parts.append(f'<span class="jbn">{g(6)}</span>'); prev_key = None
         elif g(7):
-            parts.append(f'<span class="jp">{_html_esc.escape(g(7))}</span>')
+            parts.append(f'<span class="jp">{_html_esc.escape(g(7))}</span>'); prev_key = None
         else:
             parts.append(g(8) if g(8) else _html_esc.escape(m.group(0)))
     return _HIGHLIGHT_HTML_TMPL.format(content="".join(parts))
@@ -237,30 +272,10 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
         wrapper_cls = "json-viewer-wrapper"
     else:
         viewer = html.Iframe(
-            srcDoc=_build_highlighted_html(json_str),
+            srcDoc=_build_highlighted_html(json_str, chips),
             style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
         )
         wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
-
-    # Chips bar — one clickable button per item; uses id-link pattern so
-    # handle_id_link_click fires automatically. Offset idx by 10000 to avoid
-    # collision with inline link counters in highlight_json_components.
-    chips_bar = None
-    if chips:
-        chip_btns = [
-            html.Button(
-                chip["label"],
-                id={"type": "id-link", "idx": 10000 + i,
-                    "gid": chip["get_id"][:40],
-                    "par": chip["param"][:40],
-                    "val": chip["value"][:200]},
-                n_clicks=0,
-                className="chip-nav-btn",
-                title=chip["title"],
-            )
-            for i, chip in enumerate(chips)
-        ]
-        chips_bar = html.Div(chip_btns, className="chips-bar")
 
     return html.Div([
         html.Div([
@@ -270,7 +285,6 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
-        chips_bar,
         html.Div(viewer, className=wrapper_cls),
     ], className="response-container")
 
@@ -525,6 +539,7 @@ app.layout = html.Div([
     dcc.Store(id="page-trigger", data={}),          # written only by start_pagination
     dcc.Store(id="page-state", data={"running": False}),  # written only by tick_fetch (primary)
     dcc.Store(id="spinner-off", data=0),            # written by execute_api_call to signal done
+    dcc.Store(id="iframe-link-click", data=None),  # written by postMessage from large-JSON iframe
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
@@ -1238,6 +1253,71 @@ app.clientside_callback(
     Input("spinner-off", "data"),
     prevent_initial_call=True,
 )
+
+
+# 15. Wire up postMessage from large-JSON iframes → iframe-link-click store.
+#     set_props writes to the store from outside a Dash callback (event listener).
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (!window._iframeLinkListenerAdded) {
+            window._iframeLinkListenerAdded = true;
+            window.addEventListener('message', function(e) {
+                if (e.data && e.data.type === 'id-link') {
+                    window.dash_clientside.set_props('iframe-link-click', {data: e.data});
+                }
+            });
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("iframe-link-click", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
+)
+
+
+# 16. Handle iframe inline link click — navigate to get endpoint with prefill
+@app.callback(
+    Output("selected-endpoint", "data", allow_duplicate=True),
+    Output("response-container", "children", allow_duplicate=True),
+    Input("iframe-link-click", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def handle_iframe_link_click(link_data, conn_config):
+    if not link_data:
+        return no_update, no_update
+    get_id = link_data.get("gid", "")
+    param_name = link_data.get("par", "")
+    value = link_data.get("val", "")
+    if not get_id or not param_name or value == "":
+        return no_update, no_update
+
+    endpoint = get_endpoint_by_id(get_id)
+    if not endpoint:
+        return no_update, no_update
+
+    path = endpoint["path"]
+    query_params: Dict[str, Any] = {}
+    if param_name in endpoint.get("path_params", []):
+        path = path.replace(f"{{{param_name}}}", value)
+    else:
+        query_params[param_name] = value
+
+    host, token = _resolve_conn(conn_config)
+    if not token:
+        return no_update, build_error_panel("No auth token.")
+    if not host:
+        return no_update, build_error_panel("No workspace host.")
+
+    result = make_api_call(
+        method=endpoint.get("method", "GET"),
+        path=path, token=token, host=host,
+        query_params=query_params or None,
+    )
+    endpoint_with_prefill = {**endpoint, "_prefill": {param_name: value}}
+    return endpoint_with_prefill, build_response_panel(result)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
