@@ -172,7 +172,7 @@ def _resolve_conn(conn_config):
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
-def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None, truncate: bool = True) -> html.Div:
+def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -> html.Div:
     code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
     if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
     elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
@@ -180,9 +180,6 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None, t
     else:                   status_color, icon = "warning", "bi-exclamation-circle-fill"
 
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
-    truncated = truncate and len(json_str) > 50_000
-    if truncated:
-        json_str = json_str[:50_000] + "\n\n... [truncated]"
 
     item_count = ""
     if isinstance(data, list):
@@ -193,22 +190,12 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None, t
                 item_count = f" · {len(v)} items"
                 break
 
-    next_token = _detect_next_page_token(data)
-
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
                       color=status_color, className="status-badge"),
             html.Span(f"{ms}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
-            html.Button(
-                [html.I(className="bi bi-arrows-fullscreen me-1"), "Truncated — load full"],
-                id="load-full-btn", n_clicks=0, className="load-full-btn",
-            ) if truncated and next_token else None,
-            html.Button(
-                [html.I(className="bi bi-collection me-1"), "Load all pages"],
-                id="load-all-btn", n_clicks=0, className="load-all-btn",
-            ) if next_token else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(highlight_json_components(json_str, chips), className="json-viewer-wrapper"),
@@ -460,7 +447,7 @@ app.layout = html.Div([
     dcc.Store(id="conn-config", data=_DEFAULT_CONN),
     dcc.Store(id="last-request", data=None),
     dcc.Store(id="page-state", data={"running": False}),
-    dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
+    dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
@@ -864,24 +851,22 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     return build_response_panel(result, chips), last_req
 
 
-# 11. Start paginated load — initialises page-state and enables the ticker
+# 11. Auto-start pagination whenever last-request changes (fires after every execute)
 @app.callback(
     Output("page-state", "data"),
-    Output("page-ticker", "disabled"),
-    Input("load-all-btn", "n_clicks"),
-    State("last-request", "data"),
+    Input("last-request", "data"),
     prevent_initial_call=True,
 )
-def start_pagination(n_clicks, last_req):
-    if not n_clicks or not last_req:
-        return no_update, no_update
+def start_pagination(last_req):
+    if not last_req:
+        return {"running": False}
     initial_data = last_req.get("initial_data", {})
-    list_key = _find_list_key(initial_data)
-    if not list_key:
-        return no_update, no_update
     next_token = _detect_next_page_token(initial_data)
     if not next_token:
-        return no_update, no_update
+        return {"running": False}
+    list_key = _find_list_key(initial_data)
+    if not list_key:
+        return {"running": False}
     items = list(initial_data.get(list_key, []))
     return {
         "running": True,
@@ -900,7 +885,7 @@ def start_pagination(n_clicks, last_req):
         "query_params": last_req.get("query_params"),
         "body": last_req.get("body"),
         "error": None,
-    }, False  # enable ticker (single write — no repeated disable/re-enable)
+    }
 
 
 # 11b. Fetch one page per interval tick (allow_duplicate — start_pagination is primary writer)
@@ -1018,59 +1003,6 @@ def render_when_done(page_state):
     }
     chips = extract_chips(state.get("endpoint_id", ""), merged_data)
     return build_response_panel(merged_result, chips)
-
-
-# 11d. Clear page-state (and thus status bar) when a new execute starts
-@app.callback(
-    Output("page-state", "data", allow_duplicate=True),
-    Input("execute-btn", "n_clicks"),
-    prevent_initial_call=True,
-)
-def reset_page_state(n_clicks):
-    if not n_clicks:
-        return no_update
-    return {"running": False}
-
-
-# 11e. Load full (untruncated) output
-@app.callback(
-    Output("response-container", "children", allow_duplicate=True),
-    Input("load-full-btn", "n_clicks"),
-    State("last-request", "data"),
-    State("page-state", "data"),
-    prevent_initial_call=True,
-)
-def load_full_data(n_clicks, last_req, page_state):
-    if not n_clicks:
-        return no_update
-    # Prefer merged pagination data if a completed run exists
-    ps = page_state or {}
-    if ps.get("items") and not ps.get("running"):
-        initial_data = ps.get("initial_data", {})
-        list_key = ps.get("list_key")
-        data = {**initial_data, list_key: ps["items"]} if list_key else initial_data
-        data.pop("next_page_token", None)
-        data.pop("has_more", None)
-        endpoint_id = ps.get("endpoint_id", "")
-        result = {
-            "status_code": ps.get("status_code", 200),
-            "elapsed_ms": ps.get("elapsed_ms", 0),
-            "data": data, "success": True, "error": None,
-            "url": ps.get("url", ""),
-        }
-    elif last_req:
-        data = last_req.get("initial_data", {})
-        endpoint_id = last_req.get("endpoint_id", "")
-        result = {
-            "status_code": last_req.get("status_code", 200),
-            "elapsed_ms": last_req.get("elapsed_ms", 0),
-            "data": data, "success": True, "error": None,
-            "url": last_req.get("url", ""),
-        }
-    else:
-        return no_update
-    chips = extract_chips(endpoint_id, data)
-    return build_response_panel(result, chips, truncate=False)
 
 
 # 11g. Abort button — cancel in-flight pagination
