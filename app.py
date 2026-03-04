@@ -347,11 +347,21 @@ _MODE_BADGE = (
 
 TOPBAR = dbc.Navbar(
     dbc.Container([
-        html.A([
-            html.Img(src="/assets/databricks.svg", className="brand-logo me-2"),
-            html.Span("Databricks", className="brand-db"),
-            html.Span(" API Explorer", className="brand-rest"),
-        ], href="/", className="navbar-brand d-flex align-items-center text-decoration-none"),
+        html.Div([
+            html.A([
+                html.Img(src="/assets/databricks.svg", className="brand-logo me-2"),
+                html.Span("Databricks", className="brand-db"),
+                html.Span(" API Explorer", className="brand-rest"),
+            ], href="/", className="navbar-brand d-flex align-items-center text-decoration-none"),
+            dcc.Loading(
+                target_components={"response-container": "children"},
+                delay_show=200,
+                delay_hide=0,
+                overlay_style={"display": "none"},
+                custom_spinner=html.Span(className="topbar-spinner"),
+                children=html.Span(className="topbar-loading-slot"),
+            ),
+        ], className="d-flex align-items-center"),
         html.Div([
             html.Span(VERSION, className="version-badge me-2"),
             _MODE_BADGE,
@@ -510,14 +520,7 @@ app.layout = html.Div([
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
             html.Div([
                 html.Div(id="fetch-status-bar", className="fetch-status-bar"),
-                dcc.Loading(
-                    html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
-                    type="circle",
-                    color="#00d4ff",
-                    delay_show=200,
-                    parent_style={"flex": "1", "display": "flex", "flexDirection": "column",
-                                  "overflow": "hidden", "minHeight": "0"},
-                ),
+                html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
             ], className="response-panel"),
         ], className="main-content"),
     ], className="app-body"),
