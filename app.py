@@ -242,6 +242,26 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
         )
         wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
 
+    # Chips bar — one clickable button per item; uses id-link pattern so
+    # handle_id_link_click fires automatically. Offset idx by 10000 to avoid
+    # collision with inline link counters in highlight_json_components.
+    chips_bar = None
+    if chips:
+        chip_btns = [
+            html.Button(
+                chip["label"],
+                id={"type": "id-link", "idx": 10000 + i,
+                    "gid": chip["get_id"][:40],
+                    "par": chip["param"][:40],
+                    "val": chip["value"][:200]},
+                n_clicks=0,
+                className="chip-nav-btn",
+                title=chip["title"],
+            )
+            for i, chip in enumerate(chips)
+        ]
+        chips_bar = html.Div(chip_btns, className="chips-bar")
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -250,6 +270,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
+        chips_bar,
         html.Div(viewer, className=wrapper_cls),
     ], className="response-container")
 

@@ -583,6 +583,36 @@ body {
   text-shadow: 0 0 6px rgba(0,212,255,0.5);
 }
 
+/* ── Chips bar (list → get navigation) ────────────────────────────── */
+.chips-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,212,255,0.025);
+}
+.chip-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0,212,255,0.06);
+  border: 1px solid rgba(0,212,255,0.18);
+  border-radius: var(--r-sm);
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.chip-nav-btn:hover {
+  background: rgba(0,212,255,0.16);
+  border-color: rgba(0,212,255,0.45);
+  color: #fff;
+}
+
 /* Error panel */
 .error-panel {
   padding: 20px;
