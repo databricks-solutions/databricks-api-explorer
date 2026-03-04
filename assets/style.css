@@ -73,6 +73,12 @@ body {
   height: 100%;
 }
 
+.brand-logo {
+  height: 1em;
+  width: auto;
+  flex-shrink: 0;
+}
+
 .brand-db {
   font-size: 16px;
   font-weight: 700;
@@ -502,6 +508,27 @@ body {
 .jbn { color: #94a3b8; }       /* null → muted */
 .jp  { color: #64748b; }       /* punctuation */
 
+/* ── Load full / load all pages buttons ──────────────────────────── */
+.load-full-btn {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.28);
+  color: var(--orange);
+  border-radius: var(--r-md);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+}
+.load-full-btn:hover {
+  background: rgba(245,158,11,0.18);
+  border-color: rgba(245,158,11,0.5);
+  box-shadow: 0 0 8px rgba(245,158,11,0.18);
+}
+
 /* ── Load all pages button ────────────────────────────────────────── */
 .load-all-btn {
   background: rgba(0,212,255,0.07);
@@ -648,12 +675,6 @@ body {
   gap: 5px;
 }
 
-/* ── Truncation warning ───────────────────────────────────────────── */
-.truncation-notice {
-  font-size: 11px;
-  color: var(--orange);
-  font-family: var(--font-mono);
-}
 
 /* ── Version badge ────────────────────────────────────────────────── */
 .version-badge {

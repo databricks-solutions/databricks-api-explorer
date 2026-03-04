@@ -43,6 +43,24 @@ app = dash.Dash(
 )
 server = app.server
 
+app.index_string = '''<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 331'><path d='M283.923 136.449L150.144 213.624L6.88995 131.168L0 134.982V194.844L150.144 281.115L283.923 204.234V235.926L150.144 313.1L6.88995 230.644L0 234.458V244.729L150.144 331L300 244.729V184.867L293.11 181.052L150.144 263.215L16.0766 186.334V154.643L150.144 231.524L300 145.253V86.2713L292.536 81.8697L150.144 163.739L22.9665 90.9663L150.144 17.8998L254.641 78.055L263.828 72.773V65.4371L150.144 0L0 86.2713V95.6613L150.144 181.933L283.923 104.758V136.449Z' fill='%23FF3621'/></svg>">
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>'''
+
 # Default connection config
 _DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
 
@@ -154,7 +172,7 @@ def _resolve_conn(conn_config):
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
-def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -> html.Div:
+def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None, truncate: bool = True) -> html.Div:
     code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
     if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
     elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
@@ -162,7 +180,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
     else:                   status_color, icon = "warning", "bi-exclamation-circle-fill"
 
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
-    truncated = len(json_str) > 50_000
+    truncated = truncate and len(json_str) > 50_000
     if truncated:
         json_str = json_str[:50_000] + "\n\n... [truncated]"
 
@@ -183,7 +201,10 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                       color=status_color, className="status-badge"),
             html.Span(f"{ms}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
-            html.Span(" [truncated]", className="truncation-notice") if truncated else None,
+            html.Button(
+                [html.I(className="bi bi-arrows-fullscreen me-1"), "Truncated — load full"],
+                id="load-full-btn", n_clicks=0, className="load-full-btn",
+            ) if truncated and next_token else None,
             html.Button(
                 [html.I(className="bi bi-collection me-1"), "Load all pages"],
                 id="load-all-btn", n_clicks=0, className="load-all-btn",
@@ -288,6 +309,7 @@ _MODE_BADGE = (
 TOPBAR = dbc.Navbar(
     dbc.Container([
         html.A([
+            html.Img(src="/assets/databricks.svg", className="brand-logo me-2"),
             html.Span("Databricks", className="brand-db"),
             html.Span(" API Explorer", className="brand-rest"),
         ], href="/", className="navbar-brand d-flex align-items-center text-decoration-none"),
@@ -842,23 +864,24 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     return build_response_panel(result, chips), last_req
 
 
-# 11. Start paginated load — initialises page-state (PRIMARY writer)
+# 11. Start paginated load — initialises page-state and enables the ticker
 @app.callback(
     Output("page-state", "data"),
+    Output("page-ticker", "disabled"),
     Input("load-all-btn", "n_clicks"),
     State("last-request", "data"),
     prevent_initial_call=True,
 )
 def start_pagination(n_clicks, last_req):
     if not n_clicks or not last_req:
-        return no_update
+        return no_update, no_update
     initial_data = last_req.get("initial_data", {})
     list_key = _find_list_key(initial_data)
     if not list_key:
-        return no_update
+        return no_update, no_update
     next_token = _detect_next_page_token(initial_data)
     if not next_token:
-        return no_update
+        return no_update, no_update
     items = list(initial_data.get(list_key, []))
     return {
         "running": True,
@@ -877,7 +900,7 @@ def start_pagination(n_clicks, last_req):
         "query_params": last_req.get("query_params"),
         "body": last_req.get("body"),
         "error": None,
-    }
+    }, False  # enable ticker (single write — no repeated disable/re-enable)
 
 
 # 11b. Fetch one page per interval tick (allow_duplicate — start_pagination is primary writer)
@@ -925,17 +948,7 @@ def tick_fetch(n_intervals, page_state, conn_config):
     }
 
 
-# 11c. Enable/disable ticker based on page-state
-@app.callback(
-    Output("page-ticker", "disabled"),
-    Input("page-state", "data"),
-    prevent_initial_call=True,
-)
-def sync_ticker(page_state):
-    return not (page_state or {}).get("running", False)
-
-
-# 11d. Update status bar from page-state
+# 11c. Update status bar from page-state
 @app.callback(
     Output("fetch-status-bar", "children"),
     Input("page-state", "data"),
@@ -978,7 +991,7 @@ def sync_status_bar(page_state):
     ], className="fetch-status-inner done")
 
 
-# 11e. Render final merged result when pagination completes
+# 11c. Render final merged result when pagination completes
 @app.callback(
     Output("response-container", "children", allow_duplicate=True),
     Input("page-state", "data"),
@@ -1007,7 +1020,7 @@ def render_when_done(page_state):
     return build_response_panel(merged_result, chips)
 
 
-# 11f. Clear page-state (and thus status bar) when a new execute starts
+# 11d. Clear page-state (and thus status bar) when a new execute starts
 @app.callback(
     Output("page-state", "data", allow_duplicate=True),
     Input("execute-btn", "n_clicks"),
@@ -1017,6 +1030,47 @@ def reset_page_state(n_clicks):
     if not n_clicks:
         return no_update
     return {"running": False}
+
+
+# 11e. Load full (untruncated) output
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Input("load-full-btn", "n_clicks"),
+    State("last-request", "data"),
+    State("page-state", "data"),
+    prevent_initial_call=True,
+)
+def load_full_data(n_clicks, last_req, page_state):
+    if not n_clicks:
+        return no_update
+    # Prefer merged pagination data if a completed run exists
+    ps = page_state or {}
+    if ps.get("items") and not ps.get("running"):
+        initial_data = ps.get("initial_data", {})
+        list_key = ps.get("list_key")
+        data = {**initial_data, list_key: ps["items"]} if list_key else initial_data
+        data.pop("next_page_token", None)
+        data.pop("has_more", None)
+        endpoint_id = ps.get("endpoint_id", "")
+        result = {
+            "status_code": ps.get("status_code", 200),
+            "elapsed_ms": ps.get("elapsed_ms", 0),
+            "data": data, "success": True, "error": None,
+            "url": ps.get("url", ""),
+        }
+    elif last_req:
+        data = last_req.get("initial_data", {})
+        endpoint_id = last_req.get("endpoint_id", "")
+        result = {
+            "status_code": last_req.get("status_code", 200),
+            "elapsed_ms": last_req.get("elapsed_ms", 0),
+            "data": data, "success": True, "error": None,
+            "url": last_req.get("url", ""),
+        }
+    else:
+        return no_update
+    chips = extract_chips(endpoint_id, data)
+    return build_response_panel(result, chips, truncate=False)
 
 
 # 11g. Abort button — cancel in-flight pagination
