@@ -607,11 +607,77 @@ def build_sidebar() -> html.Div:
 
 
 # ── Top Bar ───────────────────────────────────────────────────────────────────
-_MODE_BADGE = (
-    dbc.Badge([html.I(className="bi bi-cloud-fill me-1"), "Databricks App"], color="info", className="mode-badge")
-    if IS_DATABRICKS_APP else
-    dbc.Badge([html.I(className="bi bi-laptop me-1"), "Local Mode"], color="warning", className="mode-badge")
+_MODE_BADGE = html.Button(
+    dbc.Badge(
+        [html.I(className="bi bi-cloud-fill me-1"), "Databricks App"] if IS_DATABRICKS_APP
+        else [html.I(className="bi bi-laptop me-1"), "Local Mode"],
+        color="info" if IS_DATABRICKS_APP else "warning",
+        className="mode-badge",
+    ),
+    id="mode-badge-btn", n_clicks=0,
+    className="mode-badge-btn",
 )
+
+_DEPLOY_MODAL = dbc.Modal([
+    dbc.ModalHeader(dbc.ModalTitle([
+        html.I(className="bi bi-rocket-takeoff me-2"),
+        "Deploy API Explorer",
+    ])),
+    dbc.ModalBody([
+        html.H6([html.I(className="bi bi-laptop me-2"), "Local Development"], className="deploy-section-title"),
+        html.P("Run the app locally with Databricks CLI authentication:", className="text-muted small mb-2"),
+        html.Pre(
+            "# Install dependencies\n"
+            "pip install -r requirements.txt\n\n"
+            "# Authenticate to your workspace\n"
+            "databricks auth login --host https://<workspace-url>\n\n"
+            "# Start the app\n"
+            "python app.py\n\n"
+            "# Open http://localhost:8050",
+            className="deploy-code",
+        ),
+        html.P([
+            "The app reads CLI profiles from ",
+            html.Code("~/.databrickscfg"),
+            " and lets you switch between workspaces in the UI.",
+        ], className="text-muted small mb-4"),
+
+        html.Hr(className="divider"),
+
+        html.H6([html.I(className="bi bi-cloud-fill me-2"), "Databricks App Deployment"], className="deploy-section-title"),
+        html.P("Deploy as a managed Databricks App with On-Behalf-Of (OBO) authentication:", className="text-muted small mb-2"),
+
+        html.Div([html.Span("Option A", className="deploy-option-label"), " — Asset Bundles (recommended)"], className="deploy-option-title"),
+        html.Pre(
+            "# Deploy via Databricks Asset Bundles\n"
+            "databricks bundle deploy\n\n"
+            "# Start the app\n"
+            "databricks bundle run api_explorer",
+            className="deploy-code",
+        ),
+
+        html.Div([html.Span("Option B", className="deploy-option-label"), " — Direct CLI"], className="deploy-option-title"),
+        html.Pre(
+            "# Deploy directly\n"
+            "databricks apps deploy databricks-api-explorer \\\n"
+            "  --source-code-path . \\\n"
+            "  --profile <your-profile>",
+            className="deploy-code",
+        ),
+
+        html.P([
+            "When running as a Databricks App, authentication is automatic — "
+            "the user's identity is forwarded via the ",
+            html.Code("x-forwarded-access-token"),
+            " header. No token configuration needed.",
+        ], className="text-muted small mb-2"),
+
+        html.Div([
+            html.Span("View logs: ", className="text-muted small"),
+            html.Code("databricks apps logs databricks-api-explorer --profile <your-profile>", className="small"),
+        ]),
+    ]),
+], id="deploy-modal", is_open=False, size="lg", centered=True, className="deploy-modal")
 
 TOPBAR = dbc.Navbar(
     dbc.Container([
@@ -752,6 +818,14 @@ USER_DROPDOWN = html.Div([
 
 ], id="user-dropdown", style={"display": "none"}, className="user-dropdown")
 
+# Transparent overlay behind dropdown — click to close
+_DROPDOWN_OVERLAY = html.Div(
+    id="dropdown-overlay",
+    n_clicks=0,
+    style={"display": "none"},
+    className="dropdown-overlay",
+)
+
 
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
 WELCOME = html.Div([
@@ -795,8 +869,12 @@ app.layout = html.Div([
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
+    dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
+
     TOPBAR,
+    _DROPDOWN_OVERLAY,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
+    _DEPLOY_MODAL,
 
     html.Div([
         build_sidebar(),
@@ -853,9 +931,47 @@ def init_on_load(_, conn_config):
     return user_el, host_label, ws_name_el
 
 
-# 2. Toggle dropdown and populate identity info
+# 1b. Toggle deploy modal
 @app.callback(
+    Output("deploy-modal", "is_open"),
+    Input("mode-badge-btn", "n_clicks"),
+    State("deploy-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_deploy_modal(n, is_open):
+    return not is_open
+
+
+# 2. Toggle dropdown open/close — clientside for instant reactivity
+app.clientside_callback(
+    """
+    function(btnClicks, overlayClicks, isOpen) {
+        // Both inputs trigger a close or toggle
+        var triggered = dash_clientside.callback_context.triggered;
+        if (!triggered || !triggered.length) return [dash_clientside.no_update, dash_clientside.no_update, dash_clientside.no_update];
+        var tid = triggered[0].prop_id;
+        if (tid === "dropdown-overlay.n_clicks") {
+            // Overlay click → always close
+            return [false, {display: "none"}, {display: "none"}];
+        }
+        // user-btn click → toggle
+        var newOpen = !isOpen;
+        var style = newOpen ? {display: "block"} : {display: "none"};
+        return [newOpen, style, style];
+    }
+    """,
+    Output("dropdown-open", "data"),
     Output("user-dropdown", "style"),
+    Output("dropdown-overlay", "style"),
+    Input("user-btn", "n_clicks"),
+    Input("dropdown-overlay", "n_clicks"),
+    State("dropdown-open", "data"),
+    prevent_initial_call=True,
+)
+
+
+# 2b. Populate identity info when dropdown opens (server-side, async)
+@app.callback(
     Output("popup-avatar", "children"),
     Output("popup-name", "children"),
     Output("popup-username", "children"),
@@ -865,15 +981,13 @@ def init_on_load(_, conn_config):
     Output("conn-mode-radio", "value"),
     Output("profile-select", "value"),
     Output("profile-select", "options"),
-    Input("user-btn", "n_clicks"),
-    State("user-dropdown", "style"),
+    Input("dropdown-open", "data"),
     State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def toggle_dropdown(n_clicks, current_style, conn_config):
-    # Close if already open
-    if current_style and current_style.get("display") != "none":
-        return {"display": "none"}, *([no_update] * 9)
+def populate_dropdown(is_open, conn_config):
+    if not is_open:
+        return [no_update] * 9
 
     conn_config = conn_config or _DEFAULT_CONN
     host, token = _resolve_conn(conn_config)
@@ -895,7 +1009,6 @@ def toggle_dropdown(n_clicks, current_style, conn_config):
     username = scim.get("userName", "")
     active = scim.get("active", True)
     groups: List[Dict] = scim.get("groups", [])
-    entitlements: List[Dict] = scim.get("entitlements", [])
     emails: List[Dict] = scim.get("emails", [])
     primary_email = next((e["value"] for e in emails if e.get("primary")), emails[0]["value"] if emails else "")
     user_id = scim.get("id", "")
@@ -940,7 +1053,6 @@ def toggle_dropdown(n_clicks, current_style, conn_config):
     )
 
     return (
-        {"display": "block"},
         letter,
         display_name,
         username,
@@ -951,10 +1063,6 @@ def toggle_dropdown(n_clicks, current_style, conn_config):
         current_profile,
         profile_options,
     )
-
-
-# 3. Close dropdown when clicking user-btn again (handled above) or via ESC key not supported,
-#    so provide close by clicking user-btn (toggle) — already handled in callback 2.
 
 # 4. Show/hide profile vs sso vs custom section
 @app.callback(
