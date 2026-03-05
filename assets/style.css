@@ -726,6 +726,21 @@ body {
   transition: filter 0.15s;
 }
 .mode-badge-btn:hover { filter: brightness(1.3); }
+.about-brand-btn {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.about-brand-btn:hover { opacity: 0.8; }
+.about-row { font-size: 14px; display: flex; align-items: center; }
+.about-link {
+  color: var(--accent-primary, #7f4bc4);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.about-link:hover { color: #a77de8; text-decoration: underline; }
 
 /* ── Deploy Modal ────────────────────────────────────────────────── */
 .deploy-modal .modal-content {

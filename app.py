@@ -679,14 +679,53 @@ _DEPLOY_MODAL = dbc.Modal([
     ]),
 ], id="deploy-modal", is_open=False, size="lg", centered=True, className="deploy-modal")
 
+_ABOUT_MODAL = dbc.Modal([
+    dbc.ModalHeader(dbc.ModalTitle([
+        html.Img(src="/assets/databricks.svg", style={"height": "24px"}, className="me-2"),
+        "Databricks API Explorer",
+    ])),
+    dbc.ModalBody([
+        html.P([
+            "An interactive REST API explorer for Databricks workspaces. "
+            "Browse, execute, and inspect API calls across 15 categories and 45+ endpoints."
+        ], className="mb-3"),
+
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-github me-2"),
+                html.A(
+                    "github.com/guido-oswald_data/DatabricksAPIexplorer",
+                    href="https://github.com/guido-oswald_data/DatabricksAPIexplorer",
+                    target="_blank", rel="noopener noreferrer",
+                    className="about-link",
+                ),
+            ], className="about-row mb-2"),
+            html.Div([
+                html.I(className="bi bi-envelope me-2"),
+                html.A(
+                    "guido@databricks.com",
+                    href="mailto:guido@databricks.com",
+                    className="about-link",
+                ),
+            ], className="about-row mb-2"),
+        ]),
+
+        html.Hr(className="divider"),
+        html.Div([
+            html.Span(VERSION, className="version-badge me-2"),
+            html.Span("Built with Dash + Databricks SDK", className="text-muted small"),
+        ], className="d-flex align-items-center"),
+    ]),
+], id="about-modal", is_open=False, centered=True, className="deploy-modal")
+
 TOPBAR = dbc.Navbar(
     dbc.Container([
         html.Div([
-            html.A([
+            html.Button([
                 html.Img(src="/assets/databricks.svg", className="brand-logo me-2"),
                 html.Span("Databricks", className="brand-db"),
                 html.Span(" API Explorer", className="brand-rest"),
-            ], href="/", className="navbar-brand d-flex align-items-center text-decoration-none"),
+            ], id="about-btn", n_clicks=0, className="navbar-brand d-flex align-items-center text-decoration-none about-brand-btn"),
             html.Span(id="topbar-spinner", className="topbar-spinner topbar-spinner-hidden"),
         ], className="d-flex align-items-center"),
         html.Div([
@@ -875,6 +914,7 @@ app.layout = html.Div([
     _DROPDOWN_OVERLAY,
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
     _DEPLOY_MODAL,
+    _ABOUT_MODAL,
 
     html.Div([
         build_sidebar(),
@@ -939,6 +979,17 @@ def init_on_load(_, conn_config):
     prevent_initial_call=True,
 )
 def toggle_deploy_modal(n, is_open):
+    return not is_open
+
+
+# 1c. Toggle about modal
+@app.callback(
+    Output("about-modal", "is_open"),
+    Input("about-btn", "n_clicks"),
+    State("about-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_about_modal(n, is_open):
     return not is_open
 
 
