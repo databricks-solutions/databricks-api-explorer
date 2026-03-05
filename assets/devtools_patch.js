@@ -129,3 +129,72 @@
     init();
   }
 })();
+
+/* ── Side-panel resize handle ──────────────────────────────────────────── */
+(function () {
+  var LS_KEY = 'sp-width';
+
+  function clampWidth(w, container) {
+    var total = container.offsetWidth;
+    return Math.min(total * 0.8, Math.max(total * 0.2, w));
+  }
+
+  function applyStoredWidth() {
+    var panel = document.getElementById('side-panel');
+    if (!panel || panel.classList.contains('sp-collapsed')) return;
+    var saved = parseFloat(localStorage.getItem(LS_KEY));
+    if (!saved) return;
+    var container = panel.parentElement;
+    if (!container) return;
+    panel.style.width = clampWidth(saved, container) + 'px';
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (!e.target || !e.target.classList.contains('sp-resize-handle')) return;
+    e.preventDefault();
+    var panel = document.getElementById('side-panel');
+    if (!panel) return;
+    var container = panel.parentElement;
+    if (!container) return;
+
+    var handle = e.target;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    /* disable transition during drag so it tracks the mouse directly */
+    panel.style.transition = 'none';
+
+    var startX = e.clientX;
+    var startW = panel.offsetWidth;
+
+    function onMove(e) {
+      /* handle is on LEFT edge: drag left → wider, drag right → narrower */
+      var w = clampWidth(startW + (startX - e.clientX), container);
+      panel.style.width = w + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      panel.style.transition = '';
+      var w = parseFloat(panel.style.width);
+      if (w) localStorage.setItem(LS_KEY, w);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  /* Restore saved width whenever a new side-panel is injected by Dash */
+  new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var nodes = mutations[i].addedNodes;
+      for (var j = 0; j < nodes.length; j++) {
+        if (nodes[j].id === 'side-panel' ||
+            (nodes[j].querySelector && nodes[j].querySelector('#side-panel'))) {
+          applyStoredWidth();
+          return;
+        }
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+})();

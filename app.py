@@ -88,7 +88,8 @@ def _find_list_key(data: dict) -> Optional[str]:
 # ── JSON Tree Viewer ──────────────────────────────────────────────────────────
 _TREE_CSS = (
     "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
-    "html,body{margin:0;padding:0;background:#050810;overflow:auto;}"
+    "html{margin:0;padding:0;background:#050810;height:100%;overflow:hidden;}"
+    "body{margin:0;padding:0;background:#050810;height:100%;overflow:auto;}"
     "body{font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;"
     "font-size:12px;line-height:1.7;color:#94a3b8;}"
     "#toolbar{position:sticky;top:0;background:#050810;border-bottom:1px solid rgba(255,255,255,.07);"
@@ -120,6 +121,15 @@ _TREE_CSS = (
     "::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}"
     "::-webkit-scrollbar-track{background:transparent}"
     "*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}"
+    "#search-box{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);"
+    "color:#e2e8f0;border-radius:4px;padding:2px 8px;font-family:inherit;font-size:11px;"
+    "outline:none;min-width:80px;}"
+    "#search-box:focus{border-color:rgba(0,212,255,.4);background:rgba(0,212,255,.05);}"
+    "#search-box::placeholder{color:#475569;}"
+    "#sc{color:#94a3b8;font-size:11px;white-space:nowrap;flex-shrink:0;min-width:44px;text-align:center;}"
+    "mark.sh{background:#7c3aed;color:#fff;border-radius:2px;padding:0 1px;}"
+    "mark.sh.cur{background:#f59e0b;color:#050810;}"
+    ".sep{width:1px;height:16px;background:rgba(255,255,255,.12);flex-shrink:0;}"
 )
 
 # Raw string — no Python escape processing; JS unicode escapes work as-is in browser.
@@ -176,6 +186,57 @@ function applyCollapseLevel(newDepth){
   if(btnMinus)btnMinus.disabled=(currentDepth<=1);
 }
 function changeDepth(delta){applyCollapseLevel(Math.max(1,currentDepth+delta));}
+var searchMatches=[];var searchIdx=-1;
+function clearHighlights(){
+  document.querySelectorAll('mark.sh').forEach(function(m){
+    var p=m.parentNode;if(!p)return;
+    p.replaceChild(document.createTextNode(m.textContent),m);
+    p.normalize();
+  });
+  searchMatches=[];searchIdx=-1;
+}
+function doSearch(q){
+  clearHighlights();
+  var sc=document.getElementById('sc');
+  if(!q){if(sc)sc.textContent='';return;}
+  q=q.toLowerCase();
+  document.querySelectorAll('.tree-node.collapsed').forEach(function(nd){
+    if(nd._ensure)nd._ensure();
+    nd.classList.remove('collapsed');
+    var btn=nd.querySelector(':scope > .node-header > .toggle');
+    if(btn)btn.textContent='\u25be';
+  });
+  var root=document.getElementById('root');
+  var tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);
+  var toProc=[];var nd;
+  while((nd=tw.nextNode())){if(nd.textContent.toLowerCase().indexOf(q)!==-1)toProc.push(nd);}
+  toProc.forEach(function(tn){
+    var txt=tn.textContent;var low=txt.toLowerCase();
+    var frag=document.createDocumentFragment();var last=0;var i;
+    while((i=low.indexOf(q,last))!==-1){
+      if(i>last)frag.appendChild(document.createTextNode(txt.slice(last,i)));
+      var mk=document.createElement('mark');mk.className='sh';mk.textContent=txt.slice(i,i+q.length);
+      frag.appendChild(mk);searchMatches.push(mk);last=i+q.length;
+    }
+    if(last<txt.length)frag.appendChild(document.createTextNode(txt.slice(last)));
+    tn.parentNode.replaceChild(frag,tn);
+  });
+  if(searchMatches.length>0){searchIdx=0;activateMatch(0);}
+  updateCounter();
+}
+function activateMatch(i){
+  searchMatches.forEach(function(m,j){m.classList.toggle('cur',j===i);});
+  if(searchMatches[i])searchMatches[i].scrollIntoView({behavior:'smooth',block:'center'});
+}
+function updateCounter(){
+  var c=document.getElementById('sc');if(!c)return;
+  c.textContent=searchMatches.length>0?(searchIdx+1)+'\u2009/\u2009'+searchMatches.length:'';
+}
+function searchNav(d){
+  if(!searchMatches.length)return;
+  searchIdx=(searchIdx+d+searchMatches.length)%searchMatches.length;
+  activateMatch(searchIdx);updateCounter();
+}
 document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('root').appendChild(renderValue(DATA,null,0));
   applyCollapseLevel(currentDepth);
@@ -204,8 +265,15 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
         "</head><body>",
         "<div id='toolbar'>",
         "<button class='depth-btn' id='btn-minus' onclick='changeDepth(-1)' title='Collapse one level more'>\u2212</button>",
-        "<span id='depth-label'></span>",
         "<button class='depth-btn' onclick='changeDepth(+1)' title='Expand one level more'>+</button>",
+        "<span id='depth-label'></span>",
+        "<div class='sep'></div>",
+        "<input id='search-box' type='text' placeholder='\U0001f50d\u2009Search\u2026' "
+        "oninput='doSearch(this.value)' "
+        "onkeydown='if(event.key===\"Enter\"){searchNav(event.shiftKey?-1:1);event.preventDefault();}' />",
+        "<span id='sc'></span>",
+        "<button class='depth-btn' onclick='searchNav(-1)' title='Previous match (Shift+Enter)'>\u2191</button>",
+        "<button class='depth-btn' onclick='searchNav(1)' title='Next match (Enter)'>\u2193</button>",
         "</div>",
         "<div id='root'></div><script>",
         "const DATA=", data_js, ";",
@@ -253,6 +321,44 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
     )
     wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
 
+    # Build side panel with chip items
+    if chips:
+        sp_items = []
+        for i, chip in enumerate(chips):
+            has_label = chip["label"] != chip["title"]
+            name_text = chip["label"]
+            id_text = chip["title"] if has_label else ""
+            item_children = [html.Span(name_text, className="sp-name")]
+            if id_text:
+                item_children.append(html.Span(id_text, className="sp-id"))
+            sp_items.append(html.Button(
+                item_children,
+                id={"type": "sp-item", "index": i},
+                n_clicks=0,
+                className="sp-item",
+                title=f"{chip['label']} · {chip['title']}",
+            ))
+        side_panel = html.Div([
+            html.Div(className="sp-resize-handle"),
+            html.Div([
+                html.Button(
+                    html.I(className="bi bi-layout-sidebar-reverse"),
+                    id="sp-toggle-btn",
+                    className="sp-toggle",
+                    n_clicks=0,
+                    title="Collapse/expand panel",
+                ),
+                html.Span(f"{len(chips)} items", className="sp-header-text"),
+            ], className="sp-header"),
+            html.Div(sp_items, className="sp-list"),
+        ], id="side-panel", className="side-panel")
+    else:
+        side_panel = None
+
+    body_children = [html.Div(viewer, className=wrapper_cls)]
+    if side_panel:
+        body_children.append(side_panel)
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -261,7 +367,7 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             html.Span(item_count, className="timing-label") if item_count else None,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
-        html.Div(viewer, className=wrapper_cls),
+        html.Div(body_children, className="response-body"),
     ], className="response-container")
 
 
@@ -516,6 +622,8 @@ app.layout = html.Div([
     dcc.Store(id="page-state", data={"running": False}),  # written only by tick_fetch (primary)
     dcc.Store(id="spinner-off", data=0),            # written by execute_api_call to signal done
     dcc.Store(id="iframe-link-click", data=None),  # written by postMessage from large-JSON iframe
+    dcc.Store(id="chips-store", data=None),         # written by execute_api_call, read by sp-item callback
+    dcc.Store(id="sp-dummy", data=None),            # dummy output for side-panel toggle clientside CB
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
@@ -855,6 +963,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
     Output("response-container", "children"),
     Output("last-request", "data"),
     Output("spinner-off", "data"),
+    Output("chips-store", "data"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -865,7 +974,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
     if not n_clicks or not endpoint:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -885,7 +994,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time()
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -894,13 +1003,13 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time()
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time()
+        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time()
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
@@ -918,7 +1027,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         "status_code": result["status_code"],
         "url": result.get("url", ""),
     }
-    return build_response_panel(result, chips), last_req, time.time()
+    return build_response_panel(result, chips), last_req, time.time(), chips or None
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -1244,6 +1353,44 @@ def handle_iframe_link_click(link_data, conn_config):
     )
     endpoint_with_prefill = {**endpoint, "_prefill": {param_name: value}}
     return endpoint_with_prefill, build_response_panel(result)
+
+
+# 17. Side-panel toggle — pure JS, no server round-trip
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var panel = document.getElementById('side-panel');
+        if (panel) panel.classList.toggle('sp-collapsed');
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sp-dummy", "data"),
+    Input("sp-toggle-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# 18. Side-panel item click → navigate to GET endpoint (reuses iframe-link-click flow)
+@app.callback(
+    Output("iframe-link-click", "data", allow_duplicate=True),
+    Input({"type": "sp-item", "index": ALL}, "n_clicks"),
+    State("chips-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_sp_item_click(n_clicks_list, chips_data):
+    from dash import callback_context
+    if not callback_context.triggered or not chips_data:
+        return no_update
+    triggered = callback_context.triggered[0]
+    if not triggered["value"]:
+        return no_update
+    import json as _json
+    idx = _json.loads(triggered["prop_id"].split(".")[0])["index"]
+    if idx >= len(chips_data):
+        return no_update
+    chip = chips_data[idx]
+    return {"type": "id-link", "gid": chip["get_id"], "par": chip["param"], "val": chip["value"]}
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

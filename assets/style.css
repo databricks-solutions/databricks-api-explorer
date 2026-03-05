@@ -477,9 +477,19 @@ body {
   color: var(--text-3);
 }
 
-/* JSON Viewer — takes ALL remaining vertical space */
+/* Response body row (JSON viewer + side panel) */
+.response-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* JSON Viewer — takes ALL remaining horizontal space */
 .json-viewer-wrapper {
   flex: 1;
+  min-width: 0;
   overflow: auto;
   padding: 16px 20px;
   scrollbar-width: thin;
@@ -492,6 +502,107 @@ body {
 .json-viewer-iframe {
   padding: 0;
   overflow: hidden;
+}
+
+/* ── Side panel ───────────────────────────────────────────── */
+.side-panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.side-panel.sp-collapsed {
+  width: 30px !important;
+}
+.sp-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+.sp-resize-handle:hover,
+.sp-resize-handle.dragging {
+  background: rgba(0,212,255,0.35);
+}
+.side-panel.sp-collapsed .sp-list,
+.side-panel.sp-collapsed .sp-header-text {
+  display: none;
+}
+.sp-header {
+  padding: 6px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sp-header-text {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  flex: 1;
+}
+.sp-toggle {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+  border-radius: 3px;
+}
+.sp-toggle:hover { color: var(--cyan); background: rgba(0,212,255,0.08); }
+.sp-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.sp-list::-webkit-scrollbar { width: 4px; }
+.sp-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.sp-item {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 10px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s;
+}
+.sp-item:hover { background: rgba(0,212,255,0.07); }
+.sp-item:last-child { border-bottom: none; }
+.sp-name {
+  font-size: 11px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.sp-id {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 
