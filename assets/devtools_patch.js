@@ -163,6 +163,12 @@
     /* disable transition during drag so it tracks the mouse directly */
     panel.style.transition = 'none';
 
+    /* Cover the whole page (including the iframe) so mousemove is never
+       swallowed by the iframe's own document while dragging. */
+    var shield = document.createElement('div');
+    shield.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99999;cursor:col-resize;';
+    document.body.appendChild(shield);
+
     var startX = e.clientX;
     var startW = panel.offsetWidth;
 
@@ -175,6 +181,7 @@
       handle.classList.remove('dragging');
       document.body.style.userSelect = '';
       panel.style.transition = '';
+      document.body.removeChild(shield);
       var w = parseFloat(panel.style.width);
       if (w) localStorage.setItem(LS_KEY, w);
       document.removeEventListener('mousemove', onMove);
