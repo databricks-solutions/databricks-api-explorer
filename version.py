@@ -17,4 +17,4 @@ def _next_version() -> int:
 
 
 BUILD = _next_version()
-VERSION = f"v0.0.{BUILD}"
+VERSION = f"v0.1.{BUILD}"

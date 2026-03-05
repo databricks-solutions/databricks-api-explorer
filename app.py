@@ -8,8 +8,11 @@ Run modes:
 """
 
 import json
+import os
 import subprocess
 import time
+
+import requests
 from typing import Any, Dict, List, Optional
 
 import dash
@@ -292,6 +295,154 @@ def method_badge(method: str) -> dbc.Badge:
     return dbc.Badge(method, color=METHOD_COLORS.get(method, "secondary"), className="method-badge")
 
 
+_TOKEN_CACHE_PATH = os.path.expanduser("~/.databricks/token-cache.json")
+
+
+def _load_token_cache() -> dict:
+    if not os.path.exists(_TOKEN_CACHE_PATH):
+        return {"version": 1, "tokens": {}}
+    with open(_TOKEN_CACHE_PATH, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _save_token_cache(cache: dict):
+    with open(_TOKEN_CACHE_PATH, "w", encoding="utf-8") as fh:
+        json.dump(cache, fh, indent=2)
+
+
+def _find_cache_entry(tokens: dict, host: str):
+    """Find a cache entry matching *host* by key or JWT issuer."""
+    import base64 as _b64
+    h = host.rstrip("/")
+    entry = tokens.get(h) or tokens.get(h + "/")
+    if entry:
+        return entry
+    for _v in tokens.values():
+        try:
+            payload = _v["access_token"].split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            iss = json.loads(_b64.urlsafe_b64decode(payload)).get("iss", "")
+            if h in iss:
+                return _v
+        except Exception:
+            pass
+    return None
+
+
+def _is_token_expired(entry: dict) -> bool:
+    from datetime import datetime, timezone
+    s = entry.get("expiry", "")
+    if not s:
+        return True
+    try:
+        exp = datetime.fromisoformat(s)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return exp <= datetime.now(timezone.utc)
+    except Exception:
+        return True
+
+
+def _try_token_refresh(entry: dict, host: str) -> Optional[str]:
+    """Try to refresh an expired token silently. Returns new access_token or None."""
+    from datetime import datetime, timezone, timedelta
+    rt = entry.get("refresh_token", "")
+    if not rt:
+        return None
+    try:
+        oidc = requests.get(
+            f"{host}/oidc/.well-known/oauth-authorization-server", timeout=10
+        ).json()
+        tr = requests.post(oidc["token_endpoint"], data={
+            "grant_type": "refresh_token",
+            "client_id": "databricks-cli",
+            "refresh_token": rt,
+        }, timeout=30)
+        if not tr.ok:
+            return None
+        d = tr.json()
+        token = d.get("access_token", "")
+        if token:
+            entry["access_token"] = token
+            entry["refresh_token"] = d.get("refresh_token", rt)
+            entry["expiry"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=d.get("expires_in", 3600))
+            ).isoformat()
+            cache = _load_token_cache()
+            cache["tokens"][host.rstrip("/")] = entry
+            _save_token_cache(cache)
+        return token or None
+    except Exception:
+        return None
+
+
+def _sso_try_cached(host: str) -> Optional[str]:
+    """Return a valid token from cache (refreshing if needed), or None."""
+    cache = _load_token_cache()
+    entry = _find_cache_entry(cache.get("tokens", {}), host)
+    if not entry:
+        return None
+    if not _is_token_expired(entry):
+        return entry["access_token"]
+    return _try_token_refresh(entry, host)
+
+
+# ── Background SSO browser flow ──────────────────────────────────────
+import threading
+
+_sso_result: Dict[str, Any] = {}  # host → {"token": ..., "error": ..., "done": bool}
+_sso_lock = threading.Lock()
+
+
+def _sso_browser_flow(host: str):
+    """Run blocking browser OAuth in a background thread, store result."""
+    from databricks.sdk.oauth import OAuthClient
+    from datetime import datetime, timezone, timedelta
+    import signal
+    try:
+        # databricks-cli client only allows http://localhost:8020 as redirect
+        port = 8020
+        # Kill any leftover listener on this port
+        try:
+            for pid in subprocess.check_output(
+                ["lsof", "-ti", f":{port}"], stderr=subprocess.DEVNULL
+            ).decode().split():
+                os.kill(int(pid.strip()), signal.SIGTERM)
+            time.sleep(0.3)
+        except Exception:
+            pass
+        redirect_url = f"http://localhost:{port}"
+        client = OAuthClient.from_host(
+            host=host, client_id="databricks-cli",
+            redirect_url=redirect_url,
+            scopes=["all-apis", "offline_access"],
+        )
+        consent = client.initiate_consent()
+        if not consent:
+            with _sso_lock:
+                _sso_result[host] = {"token": None, "error": "Could not initiate OAuth.", "done": True}
+            return
+        creds = consent.launch_external_browser()
+        tok_obj = creds.token()
+        token = tok_obj.access_token
+        if token:
+            cache = _load_token_cache()
+            expiry = tok_obj.expiry or (datetime.now(timezone.utc) + timedelta(seconds=3600))
+            cache["tokens"][host.rstrip("/")] = {
+                "access_token": token,
+                "token_type": "Bearer",
+                "refresh_token": tok_obj.refresh_token or "",
+                "expiry": expiry.isoformat(),
+                "expires_in": 3600,
+            }
+            _save_token_cache(cache)
+        with _sso_lock:
+            _sso_result[host] = {"token": token, "error": None, "done": True}
+    except Exception as e:
+        with _sso_lock:
+            _sso_result[host] = {"token": None, "error": str(e), "done": True}
+
+
 def _resolve_conn(conn_config):
     """Return (host, token) based on app mode or conn_config."""
     if IS_DATABRICKS_APP:
@@ -516,6 +667,19 @@ def _profile_section():
     ], id="profile-section")
 
 
+def _sso_section():
+    return html.Div([
+        html.Label("Workspace URL", className="conn-label"),
+        dbc.Input(
+            id="sso-host-input",
+            type="url",
+            placeholder="https://adb-xxxx.azuredatabricks.net",
+            className="conn-input font-mono",
+        ),
+        html.Div("Opens your browser for SSO authentication", className="conn-hint mt-1 text-muted small"),
+    ], id="sso-section", style={"display": "none"})
+
+
 def _custom_section():
     return html.Div([
         html.Label("Workspace URL", className="conn-label"),
@@ -557,7 +721,8 @@ USER_DROPDOWN = html.Div([
             id="conn-mode-radio",
             options=[
                 {"label": "CLI Profile", "value": "profile"},
-                {"label": "Custom URL", "value": "custom"},
+                {"label": "SSO Login", "value": "sso"},
+                {"label": "URL + Token", "value": "custom"},
             ],
             value="profile",
             inline=True,
@@ -566,6 +731,7 @@ USER_DROPDOWN = html.Div([
             label_class_name="conn-radio-label",
         ),
         _profile_section(),
+        _sso_section(),
         _custom_section(),
         html.Button(
             [html.I(className="bi bi-plug-fill me-2"), "Connect"],
@@ -624,6 +790,9 @@ app.layout = html.Div([
     dcc.Store(id="iframe-link-click", data=None),  # written by postMessage from large-JSON iframe
     dcc.Store(id="chips-store", data=None),         # written by execute_api_call, read by sp-item callback
     dcc.Store(id="sp-dummy", data=None),            # dummy output for side-panel toggle clientside CB
+    dcc.Store(id="curl-dummy", data=None),          # dummy output for curl copy clientside CB
+    dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
+    dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     TOPBAR,
@@ -787,16 +956,20 @@ def toggle_dropdown(n_clicks, current_style, conn_config):
 # 3. Close dropdown when clicking user-btn again (handled above) or via ESC key not supported,
 #    so provide close by clicking user-btn (toggle) — already handled in callback 2.
 
-# 4. Show/hide profile vs custom section
+# 4. Show/hide profile vs sso vs custom section
 @app.callback(
     Output("profile-section", "style"),
+    Output("sso-section", "style"),
     Output("custom-section", "style"),
     Input("conn-mode-radio", "value"),
 )
 def toggle_conn_mode(mode):
+    hide = {"display": "none"}
     if mode == "profile":
-        return {}, {"display": "none"}
-    return {"display": "none"}, {}
+        return {}, hide, hide
+    if mode == "sso":
+        return hide, {}, hide
+    return hide, hide, {}
 
 
 # 5. Show auth type hint when profile changes
@@ -828,41 +1001,117 @@ def show_profile_hint(profile):
 @app.callback(
     Output("conn-config", "data"),
     Output("conn-status", "children"),
+    Output("sso-poller", "disabled", allow_duplicate=True),
     Input("apply-conn-btn", "n_clicks"),
     State("conn-mode-radio", "value"),
     State("profile-select", "value"),
+    State("sso-host-input", "value"),
     State("custom-host-input", "value"),
     State("custom-token-input", "value"),
     prevent_initial_call=True,
 )
-def apply_connection(n_clicks, mode, profile, custom_host, custom_token):
+def apply_connection(n_clicks, mode, profile, sso_host, custom_host, custom_token):
     if not n_clicks:
-        return no_update, no_update
+        return no_update, no_update, no_update
 
     if mode == "profile":
         if not profile:
-            return no_update, html.Span("No profile selected.", className="text-danger")
+            return no_update, html.Span("No profile selected.", className="text-danger"), no_update
         new_config = {"mode": "profile", "profile": profile}
         # Quick validation
         host, token = resolve_local_connection(new_config)
         if not host or not token:
-            return no_update, html.Span("Could not connect with this profile — check CLI auth.", className="text-danger")
-        return new_config, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected via profile '{profile}'"])
+            return no_update, html.Span("Could not connect with this profile — check CLI auth.", className="text-danger"), no_update
+        return new_config, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected via profile '{profile}'"]), no_update
+
+    elif mode == "sso":
+        host = (sso_host or "").strip().rstrip("/")
+        if not host:
+            return no_update, html.Span("Workspace URL is required.", className="text-danger"), no_update
+        if not host.startswith("https://"):
+            host = "https://" + host
+
+        # 1 — try cached / refreshed token (instant, no browser)
+        try:
+            token = _sso_try_cached(host)
+        except Exception:
+            token = None
+
+        if token:
+            r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+            if r["success"]:
+                return {"mode": "sso", "host": host, "token": token}, html.Span([
+                    html.I(className="bi bi-check-circle-fill me-1 text-success"),
+                    f"Connected to {host.replace('https://', '')}",
+                ]), no_update
+
+        # 2 — no cached token → start browser OAuth in background thread
+        with _sso_lock:
+            _sso_result[host] = {"token": None, "error": None, "done": False}
+        t = threading.Thread(target=_sso_browser_flow, args=(host,), daemon=True)
+        t.start()
+        return no_update, html.Span([
+            html.I(className="bi bi-hourglass-split me-2"),
+            "Waiting for SSO in browser… complete login and return here.",
+        ], id="sso-waiting", **{"data-host": host}), False  # enable poller
 
     else:  # custom
         host = (custom_host or "").strip().rstrip("/")
         token = (custom_token or "").strip()
         if not host:
-            return no_update, html.Span("Workspace URL is required.", className="text-danger")
+            return no_update, html.Span("Workspace URL is required.", className="text-danger"), no_update
         if not token:
-            return no_update, html.Span("Token is required.", className="text-danger")
+            return no_update, html.Span("Token is required.", className="text-danger"), no_update
         if not host.startswith("https://"):
             host = "https://" + host
         # Quick validation
         r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
         if not r["success"]:
-            return no_update, html.Span(f"Connection failed: {r['status_code']} {r.get('error','')}", className="text-danger")
-        return {"mode": "custom", "host": host, "token": token}, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected to {host.replace('https://','')}"])
+            return no_update, html.Span(f"Connection failed: {r['status_code']} {r.get('error','')}", className="text-danger"), no_update
+        return {"mode": "custom", "host": host, "token": token}, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected to {host.replace('https://','')}"]), no_update
+
+
+# 6b. Poll for SSO browser OAuth completion
+@app.callback(
+    Output("conn-config", "data", allow_duplicate=True),
+    Output("conn-status", "children", allow_duplicate=True),
+    Output("sso-poller", "disabled"),
+    Input("sso-poller", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_sso(n_intervals):
+    # Find the host that has a pending or completed SSO flow
+    with _sso_lock:
+        host = None
+        for h, res in _sso_result.items():
+            host = h
+            break
+    if not host:
+        return no_update, no_update, True  # disable poller
+
+    with _sso_lock:
+        result = _sso_result.get(host)
+    if not result or not result.get("done"):
+        return no_update, no_update, False  # keep polling
+
+    # Done — disable poller and process result
+    with _sso_lock:
+        _sso_result.pop(host, None)
+
+    if result.get("error"):
+        return no_update, html.Span(f"SSO failed: {result['error']}", className="text-danger"), True
+    token = result.get("token")
+    if not token:
+        return no_update, html.Span("SSO completed but no token received.", className="text-danger"), True
+    r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+    if r["success"]:
+        return {"mode": "sso", "host": host, "token": token}, html.Span([
+            html.I(className="bi bi-check-circle-fill me-1 text-success"),
+            f"Connected to {host.replace('https://', '')}",
+        ]), True
+    return no_update, html.Span(
+        f"Token rejected by workspace (HTTP {r['status_code']}).", className="text-danger"
+    ), True
 
 
 # 7. Re-auth (profile mode only)
@@ -954,6 +1203,16 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
             [html.I(className="bi bi-play-fill me-2"), "Execute"],
             id="execute-btn", n_clicks=0, className="execute-btn",
         ),
+        html.Div([
+            html.Div([
+                html.Span([html.I(className="bi bi-terminal me-2"), "curl"], className="curl-label"),
+                html.Button(
+                    [html.I(className="bi bi-clipboard me-1"), "Copy"],
+                    id="curl-copy-btn", n_clicks=0, className="curl-copy-btn",
+                ),
+            ], className="curl-header"),
+            html.Pre(id="curl-text", className="curl-text font-mono"),
+        ], id="curl-display", className="curl-display"),
     ], className="endpoint-card")
     return content, "form-panel"
 
@@ -1393,8 +1652,59 @@ def handle_sp_item_click(n_clicks_list, chips_data):
     return {"type": "id-link", "gid": chip["get_id"], "par": chip["param"], "val": chip["value"]}
 
 
+# 19. Build curl command below Execute button whenever a request completes
+@app.callback(
+    Output("curl-text", "children"),
+    Output("curl-display", "style"),
+    Input("last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def update_curl_display(last_req, conn_config):
+    from urllib.parse import urlencode
+    if not last_req:
+        return "", {"display": "none"}
+    host, token = _resolve_conn(conn_config)
+    method = last_req.get("method", "GET")
+    base_url = last_req.get("url", "")
+    query_params = last_req.get("query_params") or {}
+    body = last_req.get("body")
+
+    full_url = f"{base_url}?{urlencode(query_params)}" if query_params else base_url
+
+    lines = [f"curl -X {method} \\", f"  '{full_url}' \\", f"  -H 'Authorization: Bearer {token}' \\",
+             f"  -H 'Content-Type: application/json'"]
+    if body:
+        lines[-1] += " \\"
+        lines.append(f"  -d '{json.dumps(body, separators=(',', ':'))}'")
+
+    return "\n".join(lines), {"display": "block"}
+
+
+# 19b. Copy curl command to clipboard
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var el = document.getElementById('curl-text');
+        var btn = document.getElementById('curl-copy-btn');
+        if (!el || !btn) return window.dash_clientside.no_update;
+        navigator.clipboard.writeText(el.textContent).then(function() {
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
+            setTimeout(function() {
+                btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+            }, 1500);
+        }).catch(function() {});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("curl-dummy", "data"),
+    Input("curl-copy-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import os as _os
-    port = int(_os.getenv("DATABRICKS_APP_PORT", "8050"))
+    port = int(os.getenv("DATABRICKS_APP_PORT", "8050"))
     app.run(debug=not IS_DATABRICKS_APP, host="0.0.0.0", port=port)

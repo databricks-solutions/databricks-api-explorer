@@ -68,6 +68,11 @@ def resolve_local_connection(conn_config: Optional[Dict]) -> Tuple[Optional[str]
         token = (conn_config.get("token") or "")
         return (host or None), (token or None)
 
+    if mode == "sso":
+        host = (conn_config.get("host") or "").rstrip("/")
+        token = conn_config.get("token") or ""
+        return (host or None), (token or None)
+
     # Profile mode
     profile = conn_config.get("profile") or DATABRICKS_PROFILE
     try:

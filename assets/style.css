@@ -433,6 +433,54 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Curl display ─────────────────────────────────────────────────── */
+.curl-display {
+  display: none;
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: rgba(0,0,0,0.3);
+}
+.curl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px 5px 12px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+}
+.curl-label {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+.curl-copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.curl-copy-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.curl-text {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #94a3b8;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Response Container — fills full right panel height ───────────── */
 .response-container {
   display: flex;
