@@ -81,6 +81,8 @@ An ultra-modern, interactive REST API explorer for Databricks workspaces. Built 
 
 ## Architecture
 
+![Architecture Diagram](assets/Architecture1.png)
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      Browser / User                     │
