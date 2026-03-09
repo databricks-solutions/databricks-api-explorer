@@ -624,18 +624,46 @@ body {
 .sp-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 .sp-item {
   display: flex;
-  flex-direction: column;
-  padding: 5px 10px;
-  cursor: pointer;
-  background: none;
-  border: none;
+  flex-direction: row;
+  align-items: center;
   border-bottom: 1px solid rgba(255,255,255,0.04);
   width: 100%;
-  text-align: left;
   transition: background 0.1s;
 }
 .sp-item:hover { background: rgba(0,212,255,0.07); }
 .sp-item:last-child { border-bottom: none; }
+.sp-item-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+}
+.sp-action-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.sp-action-btn:hover {
+  background: rgba(0,212,255,0.12);
+  border-color: rgba(0,212,255,0.3);
+  color: #00d4ff;
+}
 .sp-name {
   font-size: 11px;
   color: var(--text-1);

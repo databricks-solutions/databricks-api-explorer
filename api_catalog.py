@@ -587,17 +587,23 @@ API_CATALOG: Dict[str, Any] = {
 
 
 # ── List → Get link map ────────────────────────────────────────────────────────
-# Format: list_endpoint_id → (get_endpoint_id, list_key, id_field, param_name, label_field)
-#   list_key   — top-level key in the response that holds the array of items
-#   id_field   — field within each item that contains the primary identifier
-#   param_name — parameter name expected by the get endpoint (None if no get endpoint)
-#   label_field — optional field for a human-friendly chip label (dotted path supported)
+# Format: list_endpoint_id → (get_endpoint_id, list_key, id_field, param_name, label_field[, extra_params[, actions]])
+#   list_key      — top-level key in the response that holds the array of items
+#   id_field      — field within each item that contains the primary identifier
+#   param_name    — parameter name expected by the get endpoint (None if no get endpoint)
+#   label_field   — optional field for a human-friendly chip label (dotted path supported)
+#   extra_params  — optional dict {target_param: source_item_field} for additional params
+#   actions       — optional list of (target_endpoint_id, icon_class, tooltip, {target_param: source_field})
 LIST_TO_GET: Dict[str, Any] = {
     "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name"),
     "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name"),
     "jobs-runs-list":             ("jobs-runs-get",          "runs",           "run_id",        "run_id",        None),
     "sql-warehouses-list":        ("sql-warehouses-get",     "warehouses",     "id",            "id",            "name"),
-    "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     None),
+    "uc-catalogs-list":           ("uc-schemas-list",        "catalogs",       "name",          "catalog_name",  None),
+    "uc-schemas-list":            ("uc-tables-list",         "schemas",        "name",          "schema_name",   None, {"catalog_name": "catalog_name"}, [
+                                      ("uc-volumes-list", "bi-archive", "List Volumes", {"catalog_name": "catalog_name", "schema_name": "name"}),
+                                  ]),
+    "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     "name"),
     "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name"),
     "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
     "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name"),
@@ -620,7 +626,9 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
     mapping = LIST_TO_GET.get(endpoint_id)
     if not mapping:
         return []
-    get_id, list_key, id_field, param_name, label_field = mapping
+    get_id, list_key, id_field, param_name, label_field = mapping[:5]
+    extra_params = mapping[5] if len(mapping) > 5 else None
+    actions_def = mapping[6] if len(mapping) > 6 else None
     if not get_id or not param_name:
         return []
     items = data.get(list_key, []) if isinstance(data, dict) else []
@@ -635,6 +643,21 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
         label = str(label) if label else str(value)
         if label != str(value):
             label = f"{label}"   # show name only; value accessible via title
+        extras = {}
+        if extra_params:
+            for target_param, source_field in extra_params.items():
+                v = item.get(source_field)
+                if v is not None:
+                    extras[target_param] = str(v)
+        actions = []
+        if actions_def:
+            for act_id, act_icon, act_title, act_params in actions_def:
+                act_p = {}
+                for tp, sf in act_params.items():
+                    v = item.get(sf)
+                    if v is not None:
+                        act_p[tp] = str(v)
+                actions.append({"gid": act_id, "icon": act_icon, "title": act_title, "params": act_p})
         chips.append({
             "get_id":   get_id,
             "param":    param_name,
@@ -642,6 +665,8 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
             "value":    str(value),
             "label":    label[:60],
             "title":    str(value),
+            "extras":   extras,
+            "actions":  actions,
         })
     return chips
 

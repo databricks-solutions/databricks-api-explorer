@@ -139,13 +139,13 @@ _TREE_CSS = (
 _TREE_JS = r"""
 var currentDepth=INITIAL_DEPTH;
 function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
-function idLink(cls,display,gid,par,val){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;e.onclick=function(){window.parent.postMessage({type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val},'*');};return e;}
+function idLink(cls,display,gid,par,val,ext){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;if(ext)e.dataset.ext=JSON.stringify(ext);e.onclick=function(){var msg={type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val};if(e.dataset.ext)msg.ext=JSON.parse(e.dataset.ext);window.parent.postMessage(msg,'*');};return e;}
 function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
   var t=typeof val;
   if(t==='boolean')return mkEl('span','jb',String(val));
-  if(t==='number'){var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val)):mkEl('span','jn',String(val));}
-  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];return c2?idLink('jv','"'+val+'"',c2.gid,c2.par,val):mkEl('span','jv','"'+val+'"');}
+  if(t==='number'){var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
+  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];return c2?idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext):mkEl('span','jv','"'+val+'"');}
   if(Array.isArray(val))return renderArray(val,depth);
   if(t==='object')return renderObject(val,depth);
   return mkEl('span','jbn',String(val));
@@ -256,10 +256,13 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
             field = chip["id_field"]
             if field not in link_lookup:
                 link_lookup[field] = {}
-            link_lookup[field][str(chip["value"])] = {
+            entry: Dict[str, Any] = {
                 "gid": chip["get_id"],
                 "par": chip["param"],
             }
+            if chip.get("extras"):
+                entry["ext"] = chip["extras"]
+            link_lookup[field][str(chip["value"])] = entry
     data_js = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</script>", r"<\/script>")
     lookup_js = json.dumps(link_lookup, ensure_ascii=False).replace("</script>", r"<\/script>")
     return "".join([
@@ -479,16 +482,27 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
             has_label = chip["label"] != chip["title"]
             name_text = chip["label"]
             id_text = chip["title"] if has_label else ""
-            item_children = [html.Span(name_text, className="sp-name")]
+            text_children = [html.Span(name_text, className="sp-name")]
             if id_text:
-                item_children.append(html.Span(id_text, className="sp-id"))
-            sp_items.append(html.Button(
-                item_children,
-                id={"type": "sp-item", "index": i},
-                n_clicks=0,
-                className="sp-item",
-                title=f"{chip['label']} · {chip['title']}",
-            ))
+                text_children.append(html.Span(id_text, className="sp-id"))
+            item_children = [
+                html.Button(
+                    text_children,
+                    id={"type": "sp-item", "index": i},
+                    n_clicks=0,
+                    className="sp-item-main",
+                    title=f"{chip['label']} · {chip['title']}",
+                ),
+            ]
+            for j, action in enumerate(chip.get("actions") or []):
+                item_children.append(html.Button(
+                    html.I(className=f"bi {action['icon']}"),
+                    id={"type": "sp-action", "index": i, "action": j},
+                    n_clicks=0,
+                    className="sp-action-btn",
+                    title=action["title"],
+                ))
+            sp_items.append(html.Div(item_children, className="sp-item"))
         side_panel = html.Div([
             html.Div(className="sp-resize-handle"),
             html.Div([
@@ -909,6 +923,7 @@ app.layout = html.Div([
     dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
 
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
+    dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
 
     TOPBAR,
     _DROPDOWN_OVERLAY,
@@ -1376,23 +1391,45 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
     return content, "form-panel"
 
 
+# 9b. Restore cached response when switching endpoints via sidebar
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
+    Input("selected-endpoint", "data"),
+    State("response-cache", "data"),
+    prevent_initial_call=True,
+)
+def restore_cached_response(endpoint, cache):
+    if not endpoint:
+        return _RESPONSE_EMPTY, None
+    ep_id = endpoint.get("id", "")
+    cached = (cache or {}).get(ep_id)
+    if not cached:
+        return _RESPONSE_EMPTY, None
+    result = cached["result"]
+    chips = cached.get("chips")
+    return build_response_panel(result, chips), chips
+
+
 # 10. Execute API call
 @app.callback(
     Output("response-container", "children"),
     Output("last-request", "data"),
     Output("spinner-off", "data"),
     Output("chips-store", "data"),
+    Output("response-cache", "data", allow_duplicate=True),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
     State({"type": "param-input", "name": ALL}, "id"),
     State("body-textarea", "value"),
     State("conn-config", "data"),
+    State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config):
+def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config, cache):
     if not n_clicks or not endpoint:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -1412,7 +1449,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -1421,13 +1458,13 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None
+        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None, no_update
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
@@ -1445,7 +1482,10 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         "status_code": result["status_code"],
         "url": result.get("url", ""),
     }
-    return build_response_panel(result, chips), last_req, time.time(), chips or None
+    ep_id = endpoint.get("id", "")
+    new_cache = dict(cache or {})
+    new_cache[ep_id] = {"result": result, "chips": chips or None}
+    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -1621,17 +1661,19 @@ def sync_status_bar(page_state):
 # 11c. Render final merged result when pagination completes
 @app.callback(
     Output("response-container", "children", allow_duplicate=True),
+    Output("response-cache", "data", allow_duplicate=True),
     Input("page-state", "data"),
+    State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def render_when_done(page_state):
+def render_when_done(page_state, cache):
     state = page_state or {}
     if state.get("running") or not state.get("items"):
-        return no_update
+        return no_update, no_update
     initial_data = state.get("initial_data", {})
     list_key = state.get("list_key")
     if not list_key:
-        return no_update
+        return no_update, no_update
     merged_data = {**initial_data, list_key: state["items"]}
     merged_data.pop("next_page_token", None)
     merged_data.pop("has_more", None)
@@ -1644,7 +1686,11 @@ def render_when_done(page_state):
         "url": state.get("url", ""),
     }
     chips = extract_chips(state.get("endpoint_id", ""), merged_data)
-    return build_response_panel(merged_result, chips)
+    ep_id = state.get("endpoint_id", "")
+    new_cache = dict(cache or {})
+    if ep_id:
+        new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
+    return build_response_panel(merged_result, chips), new_cache
 
 
 # 11g. Abort button — cancel in-flight pagination
@@ -1734,43 +1780,51 @@ app.clientside_callback(
 @app.callback(
     Output("selected-endpoint", "data", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
+    Output("response-cache", "data", allow_duplicate=True),
     Input("iframe-link-click", "data"),
     State("conn-config", "data"),
+    State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def handle_iframe_link_click(link_data, conn_config):
+def handle_iframe_link_click(link_data, conn_config, cache):
     if not link_data:
-        return no_update, no_update
+        return no_update, no_update, no_update
     get_id = link_data.get("gid", "")
     param_name = link_data.get("par", "")
     value = link_data.get("val", "")
     if not get_id or not param_name or value == "":
-        return no_update, no_update
+        return no_update, no_update, no_update
 
     endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update, no_update
+        return no_update, no_update, no_update
 
+    extras = link_data.get("ext") or {}
     path = endpoint["path"]
     query_params: Dict[str, Any] = {}
-    if param_name in endpoint.get("path_params", []):
-        path = path.replace(f"{{{param_name}}}", value)
-    else:
-        query_params[param_name] = value
+    prefill = {param_name: value, **extras}
+    for k, v in {param_name: value, **extras}.items():
+        if k in endpoint.get("path_params", []):
+            path = path.replace(f"{{{k}}}", v)
+        else:
+            query_params[k] = v
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return no_update, build_error_panel("No auth token.")
+        return no_update, build_error_panel("No auth token."), no_update
     if not host:
-        return no_update, build_error_panel("No workspace host.")
+        return no_update, build_error_panel("No workspace host."), no_update
 
     result = make_api_call(
         method=endpoint.get("method", "GET"),
         path=path, token=token, host=host,
         query_params=query_params or None,
     )
-    endpoint_with_prefill = {**endpoint, "_prefill": {param_name: value}}
-    return endpoint_with_prefill, build_response_panel(result)
+    chips = extract_chips(get_id, result["data"]) if result["success"] else []
+    endpoint_with_prefill = {**endpoint, "_prefill": prefill}
+    new_cache = dict(cache or {})
+    new_cache[get_id] = {"result": result, "chips": chips or None}
+    return endpoint_with_prefill, build_response_panel(result, chips), new_cache
 
 
 # 17. Side-panel toggle — pure JS, no server round-trip
@@ -1808,7 +1862,44 @@ def handle_sp_item_click(n_clicks_list, chips_data):
     if idx >= len(chips_data):
         return no_update
     chip = chips_data[idx]
-    return {"type": "id-link", "gid": chip["get_id"], "par": chip["param"], "val": chip["value"]}
+    msg = {"type": "id-link", "gid": chip["get_id"], "par": chip["param"], "val": chip["value"]}
+    if chip.get("extras"):
+        msg["ext"] = chip["extras"]
+    return msg
+
+
+# 18b. Side-panel action button click → navigate to action endpoint
+@app.callback(
+    Output("iframe-link-click", "data", allow_duplicate=True),
+    Input({"type": "sp-action", "index": ALL, "action": ALL}, "n_clicks"),
+    State("chips-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_sp_action_click(n_clicks_list, chips_data):
+    from dash import callback_context
+    if not callback_context.triggered or not chips_data:
+        return no_update
+    triggered = callback_context.triggered[0]
+    if not triggered["value"]:
+        return no_update
+    tid = json.loads(triggered["prop_id"].split(".")[0])
+    idx, action_idx = tid["index"], tid["action"]
+    if idx >= len(chips_data):
+        return no_update
+    chip = chips_data[idx]
+    actions = chip.get("actions") or []
+    if action_idx >= len(actions):
+        return no_update
+    action = actions[action_idx]
+    # The action's params dict has all params needed; pick the first as the primary par/val
+    params = action["params"]
+    first_key = next(iter(params), "")
+    first_val = params.get(first_key, "")
+    ext = {k: v for k, v in params.items() if k != first_key}
+    msg = {"type": "id-link", "gid": action["gid"], "par": first_key, "val": first_val}
+    if ext:
+        msg["ext"] = ext
+    return msg
 
 
 # 19. Build curl command below Execute button whenever a request completes
