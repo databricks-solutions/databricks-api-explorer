@@ -1857,6 +1857,7 @@ def start_load_all(n_clicks, last_req, conn_config):
         "list_key": list_key, "initial_data": initial_data,
         "last_req": last_req, "elapsed_ms": 0,
     })
+    _load_all_state.pop("finished_at", None)
 
     # Launch background thread
     t = threading.Thread(target=_load_all_worker, args=(last_req, host, token, list_key, initial_data), daemon=True)
@@ -1964,6 +1965,23 @@ def abort_load_all(n_clicks):
         html.I(className="bi bi-x-circle-fill me-2"),
         "Aborting…",
     ], className="fetch-status-inner cancelled"), {"display": "none"}
+
+
+# 11h-abort-on-switch: Cancel Load All when a different endpoint is selected
+@app.callback(
+    Output("load-all-ticker", "disabled", allow_duplicate=True),
+    Output("fetch-status-bar", "children", allow_duplicate=True),
+    Output("load-all-abort-btn", "style", allow_duplicate=True),
+    Input("selected-endpoint", "data"),
+    prevent_initial_call=True,
+)
+def abort_load_all_on_switch(endpoint):
+    if _load_all_state.get("running"):
+        _load_all_state["running"] = False
+        _load_all_state["error"] = "Cancelled"
+    # Also clear any lingering dismiss timer
+    _load_all_state.pop("finished_at", None)
+    return True, "", {"display": "none"}
 
 
 # 13. Search filter
@@ -2219,8 +2237,7 @@ app.clientside_callback(
 )
 
 
-# Reparent the Load All button into the response-meta bar,
-# and the Abort button into the fetch-status-bar, after each render
+# Reparent the Load All button into the response-meta bar after each render
 app.clientside_callback(
     """
     function(children, style) {
@@ -2228,11 +2245,6 @@ app.clientside_callback(
         var btn = document.getElementById('sp-load-all-btn');
         if (anchor && btn) {
             anchor.appendChild(btn);
-        }
-        var statusBar = document.getElementById('fetch-status-bar');
-        var abortBtn = document.getElementById('load-all-abort-btn');
-        if (statusBar && abortBtn) {
-            statusBar.appendChild(abortBtn);
         }
         return window.dash_clientside.no_update;
     }
