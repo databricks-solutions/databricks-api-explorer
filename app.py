@@ -10,6 +10,7 @@ Run modes:
 import json
 import os
 import subprocess
+import threading
 import time
 
 import requests
@@ -70,6 +71,20 @@ _DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
 # ── JSON Syntax Highlighter ───────────────────────────────────────────────────
 # ── Pagination helpers ────────────────────────────────────────────────────────
 _SKIP_LIST_KEYS = frozenset({"schemas"})
+
+# Server-side state for background "Load All" pagination
+_load_all_state: Dict[str, Any] = {
+    "running": False,
+    "pages": 0,
+    "total_items": 0,
+    "items": [],
+    "done": False,
+    "error": None,
+    "list_key": None,
+    "initial_data": {},
+    "last_req": {},
+    "elapsed_ms": 0,
+}
 
 
 def _detect_next_page_token(data: Any) -> Optional[str]:
@@ -932,6 +947,7 @@ app.layout = html.Div([
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
     dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
+    dcc.Interval(id="load-all-ticker", interval=600, disabled=True, n_intervals=0),
 
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
@@ -1746,21 +1762,72 @@ def abort_pagination(n_clicks, page_state):
     return {**state, "running": False, "error": "Cancelled"}
 
 
-# 11h. "Load All" — fetch all offset-paginated pages in one synchronous callback
+# 11h. "Load All" — background thread fetches pages; ticker polls progress.
+
+def _load_all_worker(last_req, host, token, list_key, initial_data):
+    """Background thread that fetches all pages and updates _load_all_state."""
+    state = _load_all_state
+    items = list(initial_data.get(list_key, []))
+    limit = len(items) or 25
+    offset = len(items)
+    next_token = _detect_next_page_token(initial_data)
+    use_token = next_token is not None
+    total_elapsed = last_req.get("elapsed_ms", 0)
+    pages = 1
+
+    state["items"] = items
+    state["pages"] = pages
+    state["total_items"] = len(items)
+    state["elapsed_ms"] = total_elapsed
+
+    while pages < 200 and state["running"]:
+        qp = dict(last_req.get("query_params") or {})
+        if use_token and next_token:
+            qp["page_token"] = next_token
+        else:
+            qp["offset"] = str(offset)
+            qp["limit"] = str(limit)
+
+        t0 = time.perf_counter()
+        r = make_api_call(last_req["method"], last_req["path"], token, host,
+                          query_params=qp, body=last_req.get("body"))
+        total_elapsed += int((time.perf_counter() - t0) * 1000)
+
+        if not r["success"]:
+            state["error"] = r.get("error", "API error")
+            break
+
+        page_data = r["data"]
+        new_page_items = page_data.get(list_key, [])
+        items.extend(new_page_items)
+        pages += 1
+        offset += limit
+        next_token = _detect_next_page_token(page_data)
+
+        state["items"] = items
+        state["pages"] = pages
+        state["total_items"] = len(items)
+        state["elapsed_ms"] = total_elapsed
+
+        if not page_data.get("has_more"):
+            break
+
+    state["running"] = False
+    state["done"] = True
+
+
+# 11h-start: Click "Load All" → start background thread + enable ticker
 @app.callback(
-    Output("response-container", "children", allow_duplicate=True),
-    Output("response-cache", "data", allow_duplicate=True),
-    Output("chips-store", "data", allow_duplicate=True),
+    Output("load-all-ticker", "disabled"),
     Output("fetch-status-bar", "children", allow_duplicate=True),
     Output("sp-load-all-btn", "style", allow_duplicate=True),
     Input("sp-load-all-btn", "n_clicks"),
     State("last-request", "data"),
     State("conn-config", "data"),
-    State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def load_all_pages(n_clicks, last_req, conn_config, cache):
-    NO = (no_update, no_update, no_update, no_update, no_update)
+def start_load_all(n_clicks, last_req, conn_config):
+    NO = (True, no_update, no_update)
     if not n_clicks or not last_req:
         return NO
     initial_data = last_req.get("initial_data", {})
@@ -1774,44 +1841,76 @@ def load_all_pages(n_clicks, last_req, conn_config, cache):
     if not token or not host:
         return NO
 
-    items = list(initial_data.get(list_key, []))
-    limit = len(items) or 25
-    offset = len(items)
-    next_token = _detect_next_page_token(initial_data)
-    use_token = next_token is not None
-    total_elapsed = last_req.get("elapsed_ms", 0)
-    pages = 1
+    # Reset shared state
+    _load_all_state.update({
+        "running": True, "done": False, "error": None,
+        "pages": 1, "total_items": 0, "items": [],
+        "list_key": list_key, "initial_data": initial_data,
+        "last_req": last_req, "elapsed_ms": 0,
+    })
 
-    while pages < 200:
-        qp = dict(last_req.get("query_params") or {})
-        if use_token and next_token:
-            qp["page_token"] = next_token
-        else:
-            qp["offset"] = str(offset)
-            qp["limit"] = str(limit)
+    # Launch background thread
+    t = threading.Thread(target=_load_all_worker, args=(last_req, host, token, list_key, initial_data), daemon=True)
+    t.start()
 
-        t0 = time.perf_counter()
-        r = make_api_call(last_req["method"], last_req["path"], token, host, query_params=qp, body=last_req.get("body"))
-        total_elapsed += int((time.perf_counter() - t0) * 1000)
+    status = html.Div([
+        html.I(className="bi bi-arrow-repeat me-2 spin-icon"),
+        "Loading page 1…",
+    ], className="fetch-status-inner loading")
 
-        if not r["success"]:
-            break
+    return False, status, {"display": "none"}
 
-        page_data = r["data"]
-        new_page_items = page_data.get(list_key, [])
-        items.extend(new_page_items)
-        pages += 1
-        offset += limit
-        next_token = _detect_next_page_token(page_data)
 
-        if not page_data.get("has_more"):
-            break
+# 11h-tick: Poll progress from background thread
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Output("response-cache", "data", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
+    Output("fetch-status-bar", "children", allow_duplicate=True),
+    Output("load-all-ticker", "disabled", allow_duplicate=True),
+    Input("load-all-ticker", "n_intervals"),
+    State("response-cache", "data"),
+    prevent_initial_call=True,
+)
+def poll_load_all(n_intervals, cache):
+    NO = (no_update, no_update, no_update, no_update, no_update)
+    state = _load_all_state
+    pages = state.get("pages", 0)
+    total = state.get("total_items", 0)
+    elapsed = state.get("elapsed_ms", 0)
+
+    if state.get("running"):
+        # Still loading — update status bar only
+        status = html.Div([
+            html.I(className="bi bi-arrow-repeat me-2 spin-icon"),
+            f"Loading page {pages + 1}… ({total:,} items so far · {elapsed:,}ms)",
+        ], className="fetch-status-inner loading")
+        return no_update, no_update, no_update, status, False
+
+    # Done or error — render final result
+    if state.get("error"):
+        status = html.Div([
+            html.I(className="bi bi-exclamation-triangle-fill me-2"),
+            f"Error after {pages} pages ({total:,} items): {state['error']}",
+        ], className="fetch-status-inner error")
+        # Still render whatever we got
+    else:
+        status = html.Div([
+            html.I(className="bi bi-check-circle-fill me-2"),
+            f"All pages loaded — {total:,} items · {pages} pages · {elapsed:,}ms",
+        ], className="fetch-status-inner done")
+
+    items = state.get("items", [])
+    list_key = state.get("list_key")
+    initial_data = state.get("initial_data", {})
+    last_req = state.get("last_req", {})
 
     merged_data = {**initial_data, list_key: items}
     merged_data.pop("has_more", None)
+    merged_data.pop("next_page_token", None)
     merged_result = {
         "status_code": last_req.get("status_code", 200),
-        "elapsed_ms": total_elapsed,
+        "elapsed_ms": elapsed,
         "data": merged_data,
         "success": True, "error": None,
         "url": last_req.get("url", ""),
@@ -1822,12 +1921,10 @@ def load_all_pages(n_clicks, last_req, conn_config, cache):
     if ep_id:
         new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
 
-    status = html.Div([
-        html.I(className="bi bi-check-circle-fill me-2"),
-        f"All pages loaded — {len(items):,} items · {pages} pages · {total_elapsed}ms",
-    ], className="fetch-status-inner done")
+    # Reset state for next use
+    _load_all_state.update({"running": False, "done": False, "items": []})
 
-    return build_response_panel(merged_result, chips), new_cache, chips or None, status, {"display": "none"}
+    return build_response_panel(merged_result, chips), new_cache, chips or None, status, True
 
 
 # 13. Search filter

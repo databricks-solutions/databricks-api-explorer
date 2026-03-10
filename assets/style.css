@@ -730,6 +730,8 @@ body {
 .fetch-status-inner.done      { background: rgba(16,185,129,0.05);  color: var(--green); }
 .fetch-status-inner.error     { background: rgba(239,68,68,0.05);   color: var(--red); }
 .fetch-status-inner.cancelled { background: rgba(245,158,11,0.05);  color: var(--orange); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin-icon { animation: spin 1s linear infinite; display: inline-block; }
 
 .abort-btn {
   background: rgba(239,68,68,0.1);
