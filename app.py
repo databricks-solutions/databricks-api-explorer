@@ -135,6 +135,13 @@ _TREE_CSS = (
     ".id-link{cursor:pointer;border-bottom:1px dashed currentColor;}"
     ".id-link:hover{color:#00d4ff!important;border-bottom-color:#00d4ff;"
     "text-shadow:0 0 6px rgba(0,212,255,.5);}"
+    ".jts{position:relative;cursor:default;border-bottom:1px dotted #fbbf24;}"
+    ".jts:hover .ts-tip{visibility:visible;opacity:1;}"
+    ".ts-tip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 4px);left:50%;"
+    "transform:translateX(-50%);background:#1e293b;color:#e2e8f0;font-size:11px;"
+    "padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;"
+    "border:1px solid rgba(0,212,255,.25);z-index:100;"
+    "transition:opacity .15s;}"
     "::-webkit-scrollbar{width:6px;height:6px}"
     "::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}"
     "::-webkit-scrollbar-track{background:transparent}"
@@ -155,11 +162,14 @@ _TREE_JS = r"""
 var currentDepth=INITIAL_DEPTH;
 function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
 function idLink(cls,display,gid,par,val,ext){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;if(ext)e.dataset.ext=JSON.stringify(ext);e.onclick=function(){var msg={type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val};if(e.dataset.ext)msg.ext=JSON.parse(e.dataset.ext);window.parent.postMessage(msg,'*');};return e;}
+var TS_KEYS=/time$|_at$|timestamp$|_date$|expiration$|expired$|created$|updated$|deleted$|started$|finished$|modified$|deadline$|_ts$|start_time|end_time|creation_time|last_active_time|expiry_time/i;
+function isEpoch(val,pKey){if(typeof val!=='number'||!pKey||!TS_KEYS.test(pKey))return false;if(val>1e12&&val<2e13)return val;if(val>1e9&&val<2e10)return val*1000;return false;}
+function tsSpan(cls,display,ms){var w=mkEl('span','jts '+cls);w.textContent=display;var tip=mkEl('span','ts-tip');tip.textContent=new Date(ms).toLocaleString();w.appendChild(tip);return w;}
 function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
   var t=typeof val;
   if(t==='boolean')return mkEl('span','jb',String(val));
-  if(t==='number'){var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
+  if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
   if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];return c2?idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext):mkEl('span','jv','"'+val+'"');}
   if(Array.isArray(val))return renderArray(val,depth);
   if(t==='object')return renderObject(val,depth);
