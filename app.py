@@ -575,13 +575,23 @@ def build_param_form(endpoint: Dict, prefill: Optional[Dict] = None) -> html.Div
 
     show_body = body_template is not None or method == "POST"
     if show_body:
+        body_value = body_template or "{}"
+        if prefill and body_value:
+            try:
+                body_obj = json.loads(body_value)
+                for k, v in prefill.items():
+                    if k in body_obj:
+                        body_obj[k] = v
+                body_value = json.dumps(body_obj, indent=2)
+            except (json.JSONDecodeError, TypeError):
+                pass
         rows.append(html.Hr(className="divider"))
         rows.append(html.Div([
             html.Div([
                 html.Span("Request Body", className="param-name"),
                 dbc.Badge("JSON", color="info", className="param-badge ms-2"),
             ], className="param-label mb-1"),
-            dbc.Textarea(id="body-textarea", value=body_template or "{}", className="body-textarea font-mono mt-1", rows=8),
+            dbc.Textarea(id="body-textarea", value=body_value, className="body-textarea font-mono mt-1", rows=8),
         ], className="param-row"))
     else:
         rows.append(dbc.Textarea(id="body-textarea", value="", style={"display": "none"}))
@@ -1335,16 +1345,24 @@ def select_endpoint(n_clicks_list, btn_ids):
     return endpoint
 
 
-# 8b. Sync sidebar button highlight whenever selected-endpoint changes
+# 8b. Sync sidebar button highlight + accordion section whenever selected-endpoint changes
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "className"),
+    Output("api-accordion", "active_item"),
     Input("selected-endpoint", "data"),
     State({"type": "endpoint-btn", "id": ALL}, "id"),
     prevent_initial_call=True,
 )
 def sync_active_button(endpoint, btn_ids):
     active_id = (endpoint or {}).get("id", "")
-    return ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
+    classes = ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
+    # Open the accordion section for the endpoint's category
+    cat_name = (endpoint or {}).get("category", "")
+    cat_keys = list(API_CATALOG.keys())
+    active_item = no_update
+    if cat_name in cat_keys:
+        active_item = f"item-{cat_keys.index(cat_name)}"
+    return classes, active_item
 
 
 # 9. Render endpoint detail
@@ -1815,10 +1833,16 @@ def handle_iframe_link_click(link_data, conn_config, cache):
     if not host:
         return no_update, build_error_panel("No workspace host."), no_update
 
+    method = endpoint.get("method", "GET")
+    body = None
+    if method == "POST" and query_params:
+        body = query_params
+        query_params = {}
     result = make_api_call(
-        method=endpoint.get("method", "GET"),
+        method=method,
         path=path, token=token, host=host,
         query_params=query_params or None,
+        body=body,
     )
     chips = extract_chips(get_id, result["data"]) if result["success"] else []
     endpoint_with_prefill = {**endpoint, "_prefill": prefill}

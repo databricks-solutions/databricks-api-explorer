@@ -595,10 +595,17 @@ API_CATALOG: Dict[str, Any] = {
 #   extra_params  — optional dict {target_param: source_item_field} for additional params
 #   actions       — optional list of (target_endpoint_id, icon_class, tooltip, {target_param: source_field})
 LIST_TO_GET: Dict[str, Any] = {
-    "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name"),
-    "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name"),
+    "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name", None, [
+                                      ("permissions-clusters-get", "bi-shield-check", "Get Cluster Permissions", {"cluster_id": "cluster_id"}),
+                                      ("clusters-events", "bi-journal-text", "Get Cluster Events", {"cluster_id": "cluster_id"}),
+                                  ]),
+    "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name", None, [
+                                      ("permissions-jobs-get", "bi-shield-check", "Get Job Permissions", {"job_id": "job_id"}),
+                                  ]),
     "jobs-runs-list":             ("jobs-runs-get",          "runs",           "run_id",        "run_id",        None),
-    "sql-warehouses-list":        ("sql-warehouses-get",     "warehouses",     "id",            "id",            "name"),
+    "sql-warehouses-list":        ("sql-warehouses-get",     "warehouses",     "id",            "id",            "name", None, [
+                                      ("permissions-warehouses-get", "bi-shield-check", "Get Warehouse Permissions", {"warehouse_id": "id"}),
+                                  ]),
     "uc-catalogs-list":           ("uc-schemas-list",        "catalogs",       "name",          "catalog_name",  None),
     "uc-schemas-list":            ("uc-tables-list",         "schemas",        "name",          "schema_name",   None, {"catalog_name": "catalog_name"}, [
                                       ("uc-volumes-list", "bi-archive", "List Volumes", {"catalog_name": "catalog_name", "schema_name": "name"}),
@@ -607,6 +614,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name"),
     "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
     "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name"),
+    "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
 }
