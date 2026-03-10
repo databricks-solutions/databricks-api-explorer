@@ -614,8 +614,11 @@ body {
   border-radius: 3px;
 }
 .sp-toggle:hover { color: var(--cyan); background: rgba(0,212,255,0.08); }
-.load-all-anchor { display: inline; }
 .sp-load-all-btn {
+  position: absolute;
+  top: 8px;
+  left: 220px;
+  z-index: 5;
   background: rgba(0,212,255,0.1);
   border: 1px solid rgba(0,212,255,0.25);
   color: var(--cyan);
@@ -626,6 +629,7 @@ body {
   border-radius: 3px;
   white-space: nowrap;
   transition: all 0.15s;
+  display: flex;
   align-items: center;
 }
 .sp-load-all-btn:hover {

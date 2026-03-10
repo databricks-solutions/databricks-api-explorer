@@ -546,8 +546,6 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                       color=status_color, className="status-badge"),
             html.Span(f"{ms:,}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
-            # Anchor point for the absolutely-positioned Load All button
-            html.Span(id="load-all-anchor", className="load-all-anchor"),
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(body_children, className="response-body"),
@@ -2237,23 +2235,6 @@ app.clientside_callback(
 )
 
 
-# Reparent the Load All button into the response-meta bar after each render
-app.clientside_callback(
-    """
-    function(children, style) {
-        var anchor = document.getElementById('load-all-anchor');
-        var btn = document.getElementById('sp-load-all-btn');
-        if (anchor && btn) {
-            anchor.appendChild(btn);
-        }
-        return window.dash_clientside.no_update;
-    }
-    """,
-    Output("sp-load-all-btn", "className"),
-    Input("response-container", "children"),
-    Input("sp-load-all-btn", "style"),
-    prevent_initial_call=True,
-)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
