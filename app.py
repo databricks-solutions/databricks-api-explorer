@@ -544,8 +544,10 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
                       color=status_color, className="status-badge"),
-            html.Span(f"{ms}ms", className="timing-label font-mono ms-2"),
+            html.Span(f"{ms:,}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
+            # Anchor point for the absolutely-positioned Load All button
+            html.Span(id="load-all-anchor", className="load-all-anchor"),
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(body_children, className="response-body"),
@@ -963,18 +965,16 @@ app.layout = html.Div([
         html.Div([
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
             html.Div([
-                html.Div([
-                    html.Div(id="fetch-status-bar", className="fetch-status-bar"),
-                    html.Button(
-                        [html.I(className="bi bi-cloud-download me-1"), "Load All"],
-                        id="sp-load-all-btn",
-                        n_clicks=0,
-                        className="sp-load-all-btn",
-                        title="Fetch all remaining pages",
-                        style={"display": "none"},
-                    ),
-                ], className="fetch-bar-row"),
+                html.Div(id="fetch-status-bar", className="fetch-status-bar"),
                 html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
+                html.Button(
+                    [html.I(className="bi bi-cloud-download me-1"), "Load All"],
+                    id="sp-load-all-btn",
+                    n_clicks=0,
+                    className="sp-load-all-btn",
+                    title="Fetch all remaining pages",
+                    style={"display": "none"},
+                ),
             ], className="response-panel"),
         ], className="main-content"),
     ], className="app-body"),
@@ -1887,13 +1887,23 @@ def poll_load_all(n_intervals, cache):
         ], className="fetch-status-inner loading")
         return no_update, no_update, no_update, status, False
 
-    # Done or error — render final result
+    # Auto-dismiss: if finished_at was set, wait 5s then clear status bar
+    finished_at = state.get("finished_at")
+    if finished_at and not state.get("done"):
+        if time.time() - finished_at >= 5:
+            state.pop("finished_at", None)
+            return no_update, no_update, no_update, "", True  # clear status, stop ticker
+        return NO  # keep ticking, waiting to dismiss
+
+    if not state.get("done"):
+        return NO
+
+    # Done or error — render final result and set dismiss timer
     if state.get("error"):
         status = html.Div([
             html.I(className="bi bi-exclamation-triangle-fill me-2"),
             f"Error after {pages} pages ({total:,} items): {state['error']}",
         ], className="fetch-status-inner error")
-        # Still render whatever we got
     else:
         status = html.Div([
             html.I(className="bi bi-check-circle-fill me-2"),
@@ -1921,10 +1931,10 @@ def poll_load_all(n_intervals, cache):
     if ep_id:
         new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
 
-    # Reset state for next use
-    _load_all_state.update({"running": False, "done": False, "items": []})
+    # Mark done, set dismiss timer — keep ticker running for auto-dismiss
+    _load_all_state.update({"done": False, "items": [], "finished_at": time.time()})
 
-    return build_response_panel(merged_result, chips), new_cache, chips or None, status, True
+    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False
 
 
 # 13. Search filter
@@ -2176,6 +2186,25 @@ app.clientside_callback(
     """,
     Output("curl-dummy", "data"),
     Input("curl-copy-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# Reparent the Load All button into the response-meta bar after each render
+app.clientside_callback(
+    """
+    function(children, style) {
+        var anchor = document.getElementById('load-all-anchor');
+        var btn = document.getElementById('sp-load-all-btn');
+        if (anchor && btn) {
+            anchor.appendChild(btn);
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sp-load-all-btn", "className"),
+    Input("response-container", "children"),
+    Input("sp-load-all-btn", "style"),
     prevent_initial_call=True,
 )
 
