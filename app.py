@@ -975,6 +975,14 @@ app.layout = html.Div([
                     title="Fetch all remaining pages",
                     style={"display": "none"},
                 ),
+                html.Button(
+                    [html.I(className="bi bi-x-lg me-1"), "Abort"],
+                    id="load-all-abort-btn",
+                    n_clicks=0,
+                    className="load-all-abort-btn",
+                    title="Cancel loading",
+                    style={"display": "none"},
+                ),
             ], className="response-panel"),
         ], className="main-content"),
     ], className="app-body"),
@@ -1821,13 +1829,14 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
     Output("load-all-ticker", "disabled"),
     Output("fetch-status-bar", "children", allow_duplicate=True),
     Output("sp-load-all-btn", "style", allow_duplicate=True),
+    Output("load-all-abort-btn", "style"),
     Input("sp-load-all-btn", "n_clicks"),
     State("last-request", "data"),
     State("conn-config", "data"),
     prevent_initial_call=True,
 )
 def start_load_all(n_clicks, last_req, conn_config):
-    NO = (True, no_update, no_update)
+    NO = (True, no_update, no_update, no_update)
     if not n_clicks or not last_req:
         return NO
     initial_data = last_req.get("initial_data", {})
@@ -1858,7 +1867,7 @@ def start_load_all(n_clicks, last_req, conn_config):
         "Loading page 1…",
     ], className="fetch-status-inner loading")
 
-    return False, status, {"display": "none"}
+    return False, status, {"display": "none"}, {"display": "inline-flex"}
 
 
 # 11h-tick: Poll progress from background thread
@@ -1868,16 +1877,18 @@ def start_load_all(n_clicks, last_req, conn_config):
     Output("chips-store", "data", allow_duplicate=True),
     Output("fetch-status-bar", "children", allow_duplicate=True),
     Output("load-all-ticker", "disabled", allow_duplicate=True),
+    Output("load-all-abort-btn", "style", allow_duplicate=True),
     Input("load-all-ticker", "n_intervals"),
     State("response-cache", "data"),
     prevent_initial_call=True,
 )
 def poll_load_all(n_intervals, cache):
-    NO = (no_update, no_update, no_update, no_update, no_update)
+    NO = (no_update, no_update, no_update, no_update, no_update, no_update)
     state = _load_all_state
     pages = state.get("pages", 0)
     total = state.get("total_items", 0)
     elapsed = state.get("elapsed_ms", 0)
+    HIDE = {"display": "none"}
 
     if state.get("running"):
         # Still loading — update status bar only
@@ -1885,14 +1896,14 @@ def poll_load_all(n_intervals, cache):
             html.I(className="bi bi-arrow-repeat me-2 spin-icon"),
             f"Loading page {pages + 1}… ({total:,} items so far · {elapsed:,}ms)",
         ], className="fetch-status-inner loading")
-        return no_update, no_update, no_update, status, False
+        return no_update, no_update, no_update, status, False, no_update
 
     # Auto-dismiss: if finished_at was set, wait 5s then clear status bar
     finished_at = state.get("finished_at")
     if finished_at and not state.get("done"):
         if time.time() - finished_at >= 5:
             state.pop("finished_at", None)
-            return no_update, no_update, no_update, "", True  # clear status, stop ticker
+            return no_update, no_update, no_update, "", True, HIDE  # clear status, stop ticker
         return NO  # keep ticking, waiting to dismiss
 
     if not state.get("done"):
@@ -1902,8 +1913,8 @@ def poll_load_all(n_intervals, cache):
     if state.get("error"):
         status = html.Div([
             html.I(className="bi bi-exclamation-triangle-fill me-2"),
-            f"Error after {pages} pages ({total:,} items): {state['error']}",
-        ], className="fetch-status-inner error")
+            f"Aborted after {pages} pages ({total:,} items · {elapsed:,}ms)",
+        ], className="fetch-status-inner cancelled")
     else:
         status = html.Div([
             html.I(className="bi bi-check-circle-fill me-2"),
@@ -1934,7 +1945,25 @@ def poll_load_all(n_intervals, cache):
     # Mark done, set dismiss timer — keep ticker running for auto-dismiss
     _load_all_state.update({"done": False, "items": [], "finished_at": time.time()})
 
-    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False
+    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False, HIDE
+
+
+# 11h-abort: Stop background Load All thread
+@app.callback(
+    Output("fetch-status-bar", "children", allow_duplicate=True),
+    Output("load-all-abort-btn", "style", allow_duplicate=True),
+    Input("load-all-abort-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def abort_load_all(n_clicks):
+    if not n_clicks:
+        return no_update, no_update
+    _load_all_state["running"] = False
+    _load_all_state["error"] = "Cancelled"
+    return html.Div([
+        html.I(className="bi bi-x-circle-fill me-2"),
+        "Aborting…",
+    ], className="fetch-status-inner cancelled"), {"display": "none"}
 
 
 # 13. Search filter
@@ -2190,7 +2219,8 @@ app.clientside_callback(
 )
 
 
-# Reparent the Load All button into the response-meta bar after each render
+# Reparent the Load All button into the response-meta bar,
+# and the Abort button into the fetch-status-bar, after each render
 app.clientside_callback(
     """
     function(children, style) {
@@ -2198,6 +2228,11 @@ app.clientside_callback(
         var btn = document.getElementById('sp-load-all-btn');
         if (anchor && btn) {
             anchor.appendChild(btn);
+        }
+        var statusBar = document.getElementById('fetch-status-bar');
+        var abortBtn = document.getElementById('load-all-abort-btn');
+        if (statusBar && abortBtn) {
+            statusBar.appendChild(abortBtn);
         }
         return window.dash_clientside.no_update;
     }
