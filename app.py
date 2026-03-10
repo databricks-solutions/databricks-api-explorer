@@ -503,18 +503,19 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
                     title=action["title"],
                 ))
             sp_items.append(html.Div(item_children, className="sp-item"))
+        header_children = [
+            html.Button(
+                html.I(className="bi bi-layout-sidebar-reverse"),
+                id="sp-toggle-btn",
+                className="sp-toggle",
+                n_clicks=0,
+                title="Collapse/expand panel",
+            ),
+            html.Span(f"{len(chips)} items", className="sp-header-text"),
+        ]
         side_panel = html.Div([
             html.Div(className="sp-resize-handle"),
-            html.Div([
-                html.Button(
-                    html.I(className="bi bi-layout-sidebar-reverse"),
-                    id="sp-toggle-btn",
-                    className="sp-toggle",
-                    n_clicks=0,
-                    title="Collapse/expand panel",
-                ),
-                html.Span(f"{len(chips)} items", className="sp-header-text"),
-            ], className="sp-header"),
+            html.Div(header_children, className="sp-header"),
             html.Div(sp_items, className="sp-list"),
         ], id="side-panel", className="side-panel")
     else:
@@ -930,7 +931,7 @@ app.layout = html.Div([
     dcc.Store(id="curl-dummy", data=None),          # dummy output for curl copy clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
-    dcc.Interval(id="page-ticker", interval=500, disabled=False, n_intervals=0),
+    dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
 
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
@@ -946,7 +947,17 @@ app.layout = html.Div([
         html.Div([
             html.Div(WELCOME, id="endpoint-detail", className="form-panel"),
             html.Div([
-                html.Div(id="fetch-status-bar", className="fetch-status-bar"),
+                html.Div([
+                    html.Div(id="fetch-status-bar", className="fetch-status-bar"),
+                    html.Button(
+                        [html.I(className="bi bi-cloud-download me-1"), "Load All"],
+                        id="sp-load-all-btn",
+                        n_clicks=0,
+                        className="sp-load-all-btn",
+                        title="Fetch all remaining pages",
+                        style={"display": "none"},
+                    ),
+                ], className="fetch-bar-row"),
                 html.Div(_RESPONSE_EMPTY, id="response-container", className="response-container"),
             ], className="response-panel"),
         ], className="main-content"),
@@ -1436,6 +1447,7 @@ def restore_cached_response(endpoint, cache):
     Output("spinner-off", "data"),
     Output("chips-store", "data"),
     Output("response-cache", "data", allow_duplicate=True),
+    Output("sp-load-all-btn", "style"),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -1447,7 +1459,7 @@ def restore_cached_response(endpoint, cache):
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config, cache):
     if not n_clicks or not endpoint:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -1467,7 +1479,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update, {"display": "none"}
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -1476,19 +1488,21 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update, {"display": "none"}
 
     host, token = _resolve_conn(conn_config)
     if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None, no_update
+        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}
     if not host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}
 
     result = make_api_call(
         method=method, path=path, token=token, host=host,
         query_params=params if method == "GET" else None, body=body,
     )
     chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
+    resp_data = result["data"] if isinstance(result["data"], dict) else {}
+    has_more = bool(resp_data.get("has_more"))
     last_req = {
         "path": path,
         "method": method,
@@ -1503,7 +1517,8 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     ep_id = endpoint.get("id", "")
     new_cache = dict(cache or {})
     new_cache[ep_id] = {"result": result, "chips": chips or None}
-    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache
+    btn_style = {"display": "inline-flex"} if has_more else {"display": "none"}
+    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache, btn_style
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -1511,15 +1526,20 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
 #     primary writer of page-state — ensuring sync_status_bar fires on every tick.
 @app.callback(
     Output("page-trigger", "data"),
+    Output("page-ticker", "disabled"),
     Input("last-request", "data"),
     prevent_initial_call=True,
 )
 def start_pagination(last_req):
     if not last_req:
-        return {}
+        return {}, True
     initial_data = last_req.get("initial_data", {})
+    # Skip auto-pagination when has_more is present — "Load All" handles those
+    if isinstance(initial_data, dict) and initial_data.get("has_more"):
+        return {"run_id": time.time()}, True
     next_token = _detect_next_page_token(initial_data)
     list_key = _find_list_key(initial_data) if next_token else None
+    should_paginate = next_token is not None
     return {
         "run_id": time.time(),
         "next_token": next_token,
@@ -1533,7 +1553,7 @@ def start_pagination(last_req):
         "method": last_req.get("method", "GET"),
         "query_params": last_req.get("query_params"),
         "body": last_req.get("body"),
-    }
+    }, not should_paginate
 
 
 # 11b. PRIMARY writer of page-state — no allow_duplicate, so sync_status_bar
@@ -1680,6 +1700,7 @@ def sync_status_bar(page_state):
 @app.callback(
     Output("response-container", "children", allow_duplicate=True),
     Output("response-cache", "data", allow_duplicate=True),
+    Output("page-ticker", "disabled", allow_duplicate=True),
     Input("page-state", "data"),
     State("response-cache", "data"),
     prevent_initial_call=True,
@@ -1687,7 +1708,7 @@ def sync_status_bar(page_state):
 def render_when_done(page_state, cache):
     state = page_state or {}
     if state.get("running") or not state.get("items"):
-        return no_update, no_update
+        return no_update, no_update, no_update
     initial_data = state.get("initial_data", {})
     list_key = state.get("list_key")
     if not list_key:
@@ -1708,7 +1729,7 @@ def render_when_done(page_state, cache):
     new_cache = dict(cache or {})
     if ep_id:
         new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
-    return build_response_panel(merged_result, chips), new_cache
+    return build_response_panel(merged_result, chips), new_cache, True
 
 
 # 11g. Abort button — cancel in-flight pagination
@@ -1723,6 +1744,90 @@ def abort_pagination(n_clicks, page_state):
         return no_update
     state = page_state or {}
     return {**state, "running": False, "error": "Cancelled"}
+
+
+# 11h. "Load All" — fetch all offset-paginated pages in one synchronous callback
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Output("response-cache", "data", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
+    Output("fetch-status-bar", "children", allow_duplicate=True),
+    Output("sp-load-all-btn", "style", allow_duplicate=True),
+    Input("sp-load-all-btn", "n_clicks"),
+    State("last-request", "data"),
+    State("conn-config", "data"),
+    State("response-cache", "data"),
+    prevent_initial_call=True,
+)
+def load_all_pages(n_clicks, last_req, conn_config, cache):
+    NO = (no_update, no_update, no_update, no_update, no_update)
+    if not n_clicks or not last_req:
+        return NO
+    initial_data = last_req.get("initial_data", {})
+    if not isinstance(initial_data, dict) or not initial_data.get("has_more"):
+        return NO
+    list_key = _find_list_key(initial_data)
+    if not list_key:
+        return NO
+
+    host, token = _resolve_conn(conn_config)
+    if not token or not host:
+        return NO
+
+    items = list(initial_data.get(list_key, []))
+    limit = len(items) or 25
+    offset = len(items)
+    next_token = _detect_next_page_token(initial_data)
+    use_token = next_token is not None
+    total_elapsed = last_req.get("elapsed_ms", 0)
+    pages = 1
+
+    while pages < 200:
+        qp = dict(last_req.get("query_params") or {})
+        if use_token and next_token:
+            qp["page_token"] = next_token
+        else:
+            qp["offset"] = str(offset)
+            qp["limit"] = str(limit)
+
+        t0 = time.perf_counter()
+        r = make_api_call(last_req["method"], last_req["path"], token, host, query_params=qp, body=last_req.get("body"))
+        total_elapsed += int((time.perf_counter() - t0) * 1000)
+
+        if not r["success"]:
+            break
+
+        page_data = r["data"]
+        new_page_items = page_data.get(list_key, [])
+        items.extend(new_page_items)
+        pages += 1
+        offset += limit
+        next_token = _detect_next_page_token(page_data)
+
+        if not page_data.get("has_more"):
+            break
+
+    merged_data = {**initial_data, list_key: items}
+    merged_data.pop("has_more", None)
+    merged_result = {
+        "status_code": last_req.get("status_code", 200),
+        "elapsed_ms": total_elapsed,
+        "data": merged_data,
+        "success": True, "error": None,
+        "url": last_req.get("url", ""),
+    }
+    chips = extract_chips(last_req.get("endpoint_id", ""), merged_data)
+    ep_id = last_req.get("endpoint_id", "")
+    new_cache = dict(cache or {})
+    if ep_id:
+        new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
+
+    status = html.Div([
+        html.I(className="bi bi-check-circle-fill me-2"),
+        f"All pages loaded — {len(items):,} items · {pages} pages · {total_elapsed}ms",
+    ], className="fetch-status-inner done")
+
+    return build_response_panel(merged_result, chips), new_cache, chips or None, status, {"display": "none"}
 
 
 # 13. Search filter

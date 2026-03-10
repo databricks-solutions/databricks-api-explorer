@@ -613,6 +613,38 @@ body {
   border-radius: 3px;
 }
 .sp-toggle:hover { color: var(--cyan); background: rgba(0,212,255,0.08); }
+.sp-load-all-btn {
+  background: rgba(0,212,255,0.1);
+  border: 1px solid rgba(0,212,255,0.25);
+  color: var(--cyan);
+  cursor: pointer;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.sp-load-all-btn:hover {
+  background: rgba(0,212,255,0.2);
+  border-color: rgba(0,212,255,0.45);
+}
+.side-panel.sp-collapsed .sp-load-all-btn { display: none; }
+.sp-load-progress { flex-shrink: 0; }
+.sp-load-progress-active {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.sp-progress-text {
+  font-size: 10px;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.sp-progress-bar { margin: 0; }
 .sp-list {
   overflow-y: auto;
   flex: 1;
@@ -683,7 +715,8 @@ body {
 
 
 /* ── Pagination status bar ────────────────────────────────────────── */
-.fetch-status-bar { flex-shrink: 0; overflow: hidden; }
+.fetch-bar-row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.fetch-status-bar { flex: 1; overflow: hidden; }
 .fetch-status-bar:empty { display: none; }
 
 .fetch-status-inner {
