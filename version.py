@@ -1,10 +1,25 @@
-"""Auto-incrementing build version — increments on every app start."""
+"""Auto-incrementing build version.
+
+Increments the patch number stored in ``version.txt`` on every
+``import version`` (i.e. every app start).  The file is co-located
+with this module.
+
+Attributes:
+    BUILD: Current integer build number.
+    VERSION: Semantic-version string in the form ``v0.1.<BUILD>``.
+"""
+
 import os
 
 _VERSION_FILE = os.path.join(os.path.dirname(__file__), "version.txt")
 
 
 def _next_version() -> int:
+    """Read the current build number from disk, bump it, and persist.
+
+    Returns:
+        The new (incremented) build number.
+    """
     try:
         with open(_VERSION_FILE) as f:
             v = int(f.read().strip())
@@ -16,5 +31,5 @@ def _next_version() -> int:
     return v
 
 
-BUILD = _next_version()
-VERSION = f"v0.1.{BUILD}"
+BUILD: int = _next_version()
+VERSION: str = f"v0.1.{BUILD}"

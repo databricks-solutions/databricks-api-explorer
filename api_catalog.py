@@ -1,16 +1,56 @@
+"""Databricks Workspace API Catalog.
+
+Declarative registry of every Databricks REST API endpoint exposed by
+the explorer UI, organised by category.  The two main data structures
+are:
+
+* :data:`API_CATALOG` -- nested dict of categories → endpoint
+  definitions.
+* :data:`LIST_TO_GET` -- mapping that drives inline navigation from
+  list responses to their corresponding *get* endpoints.
+
+Attributes:
+    API_CATALOG: Master endpoint registry keyed by category name.
+    LIST_TO_GET: Mapping of list-endpoint IDs to get-endpoint metadata.
+    ENDPOINT_MAP: Flat map of *all* endpoints keyed by their string ID.
+    TOTAL_ENDPOINTS: Total number of registered endpoints.
+    TOTAL_CATEGORIES: Total number of API categories.
 """
-Databricks Workspace API Catalog
-Complete catalog of all major Databricks workspace REST APIs.
-"""
-from typing import Dict, Any, List
 
-STR = "string"
-INT = "integer"
-BOOL = "boolean"
+from typing import Any, Dict, List, Optional
+
+STR: str = "string"
+INT: str = "integer"
+BOOL: str = "boolean"
 
 
-def _p(name: str, desc: str, required: bool = False, type_: str = STR, default: str = "") -> Dict:
-    return {"name": name, "description": desc, "required": required, "type": type_, "default": default}
+def _p(
+    name: str,
+    desc: str,
+    required: bool = False,
+    type_: str = STR,
+    default: str = "",
+) -> Dict[str, Any]:
+    """Build a parameter definition dict for an endpoint.
+
+    Args:
+        name: Parameter name as expected by the Databricks REST API.
+        desc: Human-readable description shown in the UI.
+        required: Whether the parameter is mandatory.
+        type_: Data type hint (``"string"``, ``"integer"``, or
+            ``"boolean"``).
+        default: Default value pre-filled in the input field.
+
+    Returns:
+        A parameter dict consumable by :func:`app.build_param_form`.
+    """
+    return {
+        "name": name,
+        "description": desc,
+        "required": required,
+        "type": type_,
+        "default": default,
+    }
 
 
 API_CATALOG: Dict[str, Any] = {
@@ -620,8 +660,16 @@ LIST_TO_GET: Dict[str, Any] = {
 }
 
 
-def _nested_get(obj: Dict, dotted_key: str):
-    """Get a value from a dict using a dotted key like 'settings.name'."""
+def _nested_get(obj: Dict, dotted_key: str) -> Any:
+    """Retrieve a value from a nested dict using a dotted key path.
+
+    Args:
+        obj: The root dictionary.
+        dotted_key: Dot-separated key path (e.g. ``"settings.name"``).
+
+    Returns:
+        The resolved value, or ``None`` if any segment is missing.
+    """
     for part in dotted_key.split("."):
         if not isinstance(obj, dict):
             return None
@@ -629,8 +677,31 @@ def _nested_get(obj: Dict, dotted_key: str):
     return obj
 
 
-def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
-    """Extract clickable ID chips from a list API response."""
+def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
+    """Extract clickable ID chip descriptors from a list API response.
+
+    Chips power the inline navigation links and side-panel items that
+    let users jump from a list response to the corresponding *get*
+    endpoint for each row.
+
+    Args:
+        endpoint_id: The ``id`` of the list endpoint whose response is
+            being processed (must be a key in :data:`LIST_TO_GET`).
+        data: The parsed JSON response body (typically a ``dict`` with
+            a top-level array key).
+
+    Returns:
+        A list of chip dicts, each containing:
+
+        * ``get_id`` -- target *get* endpoint ID.
+        * ``param`` -- query/path parameter name for the get call.
+        * ``id_field`` -- JSON key that holds the identifier.
+        * ``value`` -- the identifier value (stringified).
+        * ``label`` -- short display label (max 60 chars).
+        * ``title`` -- tooltip text (typically the raw ID).
+        * ``extras`` -- additional params to pass along.
+        * ``actions`` -- list of secondary action dicts.
+    """
     mapping = LIST_TO_GET.get(endpoint_id)
     if not mapping:
         return []
@@ -679,8 +750,19 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict]:
     return chips
 
 
-def get_endpoint_by_id(endpoint_id: str) -> Dict[str, Any]:
-    """Find an endpoint by its ID across all categories."""
+def get_endpoint_by_id(endpoint_id: str) -> Optional[Dict[str, Any]]:
+    """Find an endpoint definition by its unique string ID.
+
+    Searches every category in :data:`API_CATALOG`.
+
+    Args:
+        endpoint_id: The endpoint ``id`` to look up (e.g.
+            ``"clusters-list"``).
+
+    Returns:
+        A copy of the endpoint dict enriched with ``category`` and
+        ``category_color`` keys, or ``None`` if not found.
+    """
     for category_name, category in API_CATALOG.items():
         for endpoint in category["endpoints"]:
             if endpoint["id"] == endpoint_id:
@@ -688,8 +770,15 @@ def get_endpoint_by_id(endpoint_id: str) -> Dict[str, Any]:
     return None
 
 
-def build_endpoint_map() -> Dict[str, Dict]:
-    """Build a flat map of all endpoints keyed by ID."""
+def build_endpoint_map() -> Dict[str, Dict[str, Any]]:
+    """Build a flat lookup of all endpoints keyed by their string ID.
+
+    Each value is an endpoint dict augmented with ``category`` and
+    ``category_color``.
+
+    Returns:
+        A ``{endpoint_id: endpoint_dict}`` mapping.
+    """
     return {
         endpoint["id"]: {**endpoint, "category": cat_name, "category_color": cat["color"]}
         for cat_name, cat in API_CATALOG.items()

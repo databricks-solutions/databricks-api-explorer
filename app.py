@@ -1,10 +1,20 @@
-"""
-Databricks API Explorer
-Ultra-modern Databricks workspace API explorer built with Dash.
+"""Databricks API Explorer -- main Dash application.
+
+This single module defines the complete UI layout (sidebar, topbar,
+response viewer, connection panel) and all server- / client-side
+callbacks that drive the explorer.
 
 Run modes:
-  Local        → auth via Databricks CLI profile (SSO / OAuth / PAT) or custom URL
-  Databricks App → auth via OBO (x-forwarded-access-token header)
+    Local:
+        Auth via Databricks CLI profile (SSO / OAuth / PAT) or a
+        manually entered workspace URL + token.
+    Databricks App:
+        Auth via On-Behalf-Of (OBO) using the
+        ``x-forwarded-access-token`` header injected by the Databricks
+        Apps proxy.
+
+Key internal data flows are documented in the *Architecture* and
+*Key Patterns* sections of ``CLAUDE.md``.
 """
 
 import json
@@ -88,7 +98,14 @@ _load_all_state: Dict[str, Any] = {
 
 
 def _detect_next_page_token(data: Any) -> Optional[str]:
-    """Return next_page_token if the response has more pages, else None."""
+    """Extract a ``next_page_token`` from a paginated API response.
+
+    Args:
+        data: Parsed JSON response body.
+
+    Returns:
+        The token string when more pages exist, otherwise ``None``.
+    """
     if not isinstance(data, dict):
         return None
     token = data.get("next_page_token")
@@ -96,7 +113,17 @@ def _detect_next_page_token(data: Any) -> Optional[str]:
 
 
 def _find_list_key(data: dict) -> Optional[str]:
-    """Find the key holding the main item list in a paginated response."""
+    """Identify the top-level key that holds the item array in a response.
+
+    Skips keys in :data:`_SKIP_LIST_KEYS` (e.g. ``"schemas"``) to
+    avoid false positives.
+
+    Args:
+        data: A parsed JSON response dict.
+
+    Returns:
+        The first key whose value is a ``list``, or ``None``.
+    """
     for k, v in data.items():
         if isinstance(v, list) and k not in _SKIP_LIST_KEYS:
             return k
@@ -273,8 +300,26 @@ document.addEventListener('DOMContentLoaded',function(){
 
 
 def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
-    """Build a collapsible interactive JSON tree as a self-contained HTML document.
-    Nodes at depth >= 2 are auto-collapsed; children are lazy-rendered on first expand."""
+    """Build a self-contained HTML document with a collapsible JSON tree.
+
+    The tree is rendered entirely in vanilla JavaScript (no React /
+    Dash).  Nodes at depth >= 3 are auto-collapsed and children are
+    lazy-rendered on first expand for performance with large payloads.
+
+    If *chips* are provided, matching field values become clickable
+    inline links that post a ``window.parent.postMessage`` event
+    consumed by callback 16 (``handle_iframe_link_click``).
+
+    Args:
+        data: Any JSON-serialisable value to render.
+        chips: Optional list of chip dicts (from
+            :func:`api_catalog.extract_chips`) used to build the
+            ``LOOKUP`` table that drives inline ID links.
+
+    Returns:
+        A complete ``<!DOCTYPE html>`` string suitable for use as the
+        ``srcDoc`` of an ``<iframe>``.
+    """
     link_lookup: Dict[str, Dict[str, Dict]] = {}
     if chips:
         for chip in chips:
@@ -320,6 +365,14 @@ METHOD_COLORS = {"GET": "info", "POST": "warning", "PUT": "primary", "DELETE": "
 
 
 def method_badge(method: str) -> dbc.Badge:
+    """Return a colour-coded Bootstrap badge for an HTTP method.
+
+    Args:
+        method: HTTP verb (e.g. ``"GET"``, ``"POST"``).
+
+    Returns:
+        A :class:`dbc.Badge` component.
+    """
     return dbc.Badge(method, color=METHOD_COLORS.get(method, "secondary"), className="method-badge")
 
 
@@ -327,19 +380,42 @@ _TOKEN_CACHE_PATH = os.path.expanduser("~/.databricks/token-cache.json")
 
 
 def _load_token_cache() -> dict:
+    """Load the Databricks CLI token cache from disk.
+
+    Returns:
+        A dict with ``version`` and ``tokens`` keys.  Returns a fresh
+        empty cache if the file does not exist.
+    """
     if not os.path.exists(_TOKEN_CACHE_PATH):
         return {"version": 1, "tokens": {}}
     with open(_TOKEN_CACHE_PATH, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
-def _save_token_cache(cache: dict):
+def _save_token_cache(cache: dict) -> None:
+    """Persist the token cache dict back to disk.
+
+    Args:
+        cache: The full cache dict (must contain ``version`` and
+            ``tokens``).
+    """
     with open(_TOKEN_CACHE_PATH, "w", encoding="utf-8") as fh:
         json.dump(cache, fh, indent=2)
 
 
-def _find_cache_entry(tokens: dict, host: str):
-    """Find a cache entry matching *host* by key or JWT issuer."""
+def _find_cache_entry(tokens: dict, host: str) -> Optional[dict]:
+    """Find a token-cache entry matching *host*.
+
+    Looks up by exact key first, then falls back to decoding the JWT
+    ``iss`` claim of each cached token.
+
+    Args:
+        tokens: The ``tokens`` sub-dict from the token cache.
+        host: Workspace URL to match (with or without trailing ``/``).
+
+    Returns:
+        The matching cache entry dict, or ``None``.
+    """
     import base64 as _b64
     h = host.rstrip("/")
     entry = tokens.get(h) or tokens.get(h + "/")
@@ -358,6 +434,16 @@ def _find_cache_entry(tokens: dict, host: str):
 
 
 def _is_token_expired(entry: dict) -> bool:
+    """Check whether a cached token has expired.
+
+    Args:
+        entry: A single token-cache entry containing an ``expiry``
+            ISO-8601 timestamp string.
+
+    Returns:
+        ``True`` if the token is expired or the expiry cannot be
+        parsed.
+    """
     from datetime import datetime, timezone
     s = entry.get("expiry", "")
     if not s:
@@ -372,7 +458,19 @@ def _is_token_expired(entry: dict) -> bool:
 
 
 def _try_token_refresh(entry: dict, host: str) -> Optional[str]:
-    """Try to refresh an expired token silently. Returns new access_token or None."""
+    """Attempt a silent OAuth token refresh using the stored refresh token.
+
+    On success the *entry* dict is mutated in place and the updated
+    token cache is persisted to disk.
+
+    Args:
+        entry: A token-cache entry that must contain
+            ``refresh_token``.
+        host: Workspace URL used to discover the OIDC token endpoint.
+
+    Returns:
+        The new access token string, or ``None`` on failure.
+    """
     from datetime import datetime, timezone, timedelta
     rt = entry.get("refresh_token", "")
     if not rt:
@@ -405,7 +503,15 @@ def _try_token_refresh(entry: dict, host: str) -> Optional[str]:
 
 
 def _sso_try_cached(host: str) -> Optional[str]:
-    """Return a valid token from cache (refreshing if needed), or None."""
+    """Return a valid token from the local cache, refreshing if needed.
+
+    Args:
+        host: Workspace URL to look up.
+
+    Returns:
+        A valid access token string, or ``None`` when no usable token
+        is available.
+    """
     cache = _load_token_cache()
     entry = _find_cache_entry(cache.get("tokens", {}), host)
     if not entry:
@@ -422,8 +528,16 @@ _sso_result: Dict[str, Any] = {}  # host → {"token": ..., "error": ..., "done"
 _sso_lock = threading.Lock()
 
 
-def _sso_browser_flow(host: str):
-    """Run blocking browser OAuth in a background thread, store result."""
+def _sso_browser_flow(host: str) -> None:
+    """Run the blocking browser-based OAuth flow in a background thread.
+
+    Opens the system browser for SSO login, waits for the redirect
+    callback on ``localhost:8020``, and stores the resulting token (or
+    error) in :data:`_sso_result` under ``host``.
+
+    Args:
+        host: Workspace URL to authenticate against.
+    """
     from databricks.sdk.oauth import OAuthClient
     from datetime import datetime, timezone, timedelta
     import signal
@@ -471,14 +585,43 @@ def _sso_browser_flow(host: str):
             _sso_result[host] = {"token": None, "error": str(e), "done": True}
 
 
-def _resolve_conn(conn_config):
-    """Return (host, token) based on app mode or conn_config."""
+def _resolve_conn(
+    conn_config: Optional[Dict],
+) -> tuple:
+    """Return ``(host, token)`` for the current runtime mode.
+
+    In Databricks App mode the host and token come from environment
+    variables and request headers; in local mode they are resolved via
+    :func:`auth.resolve_local_connection`.
+
+    Args:
+        conn_config: The ``conn-config`` Dash store value.
+
+    Returns:
+        A ``(host, token)`` tuple.
+    """
     if IS_DATABRICKS_APP:
         return get_host(), flask_request.headers.get("x-forwarded-access-token")
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
-def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -> html.Div:
+def build_response_panel(
+    result: Dict[str, Any],
+    chips: Optional[List[Dict]] = None,
+) -> html.Div:
+    """Assemble the full response viewer panel for an API call result.
+
+    Includes a status badge, timing label, item count, the JSON tree
+    iframe, and an optional side panel of clickable chip items.
+
+    Args:
+        result: Normalised result dict from :func:`auth.make_api_call`.
+        chips: Optional chip list from :func:`api_catalog.extract_chips`
+            for rendering the side panel and inline ID links.
+
+    Returns:
+        A Dash ``html.Div`` component tree.
+    """
     code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
     if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
     elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
@@ -563,6 +706,14 @@ def build_response_panel(result: Dict[str, Any], chips: Optional[List] = None) -
 
 
 def build_error_panel(message: str) -> html.Div:
+    """Build a styled error message panel.
+
+    Args:
+        message: Plain-text error description.
+
+    Returns:
+        A Dash ``html.Div`` with the error layout.
+    """
     return html.Div([
         html.Div([
             html.I(className="bi bi-exclamation-triangle-fill me-2 text-danger"),
@@ -571,7 +722,25 @@ def build_error_panel(message: str) -> html.Div:
     ], className="response-container")
 
 
-def build_param_form(endpoint: Dict, prefill: Optional[Dict] = None) -> html.Div:
+def build_param_form(
+    endpoint: Dict[str, Any],
+    prefill: Optional[Dict[str, str]] = None,
+) -> html.Div:
+    """Generate the parameter input form for an endpoint.
+
+    Renders type-aware input fields for each declared parameter
+    (text vs. number), plus a JSON body textarea for ``POST``
+    endpoints.
+
+    Args:
+        endpoint: Endpoint definition dict from
+            :data:`api_catalog.API_CATALOG`.
+        prefill: Optional mapping of ``{param_name: value}`` used to
+            pre-populate fields when navigating via an inline ID link.
+
+    Returns:
+        A Dash ``html.Div`` containing the form rows.
+    """
     params: List[Dict] = endpoint.get("params", [])
     method: str = endpoint.get("method", "GET")
     body_template: Optional[str] = endpoint.get("body")
@@ -627,6 +796,15 @@ def build_param_form(endpoint: Dict, prefill: Optional[Dict] = None) -> html.Div
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 def build_sidebar() -> html.Div:
+    """Build the left sidebar with categorised endpoint buttons.
+
+    Each category becomes a collapsible accordion item containing
+    buttons for every endpoint.  A search input at the top filters
+    the visible buttons (driven by callback 13).
+
+    Returns:
+        A Dash ``html.Div`` containing the sidebar layout.
+    """
     items = []
     for cat_name, cat in API_CATALOG.items():
         btns = [
@@ -801,7 +979,12 @@ TOPBAR = dbc.Navbar(
 # ── User Dropdown Panel ───────────────────────────────────────────────────────
 # Always in DOM, shown/hidden via style. Positioned fixed below topbar right edge.
 
-def _profile_section():
+def _profile_section() -> html.Div:
+    """Build the CLI-profile connection sub-section of the dropdown.
+
+    The ``<select>`` options are populated dynamically via the
+    ``populate_dropdown`` callback each time the panel opens.
+    """
     # Options are populated dynamically via toggle_dropdown callback on each open
     return html.Div([
         html.Label("Profile", className="conn-label"),
@@ -822,7 +1005,8 @@ def _profile_section():
     ], id="profile-section")
 
 
-def _sso_section():
+def _sso_section() -> html.Div:
+    """Build the SSO-login connection sub-section of the dropdown."""
     return html.Div([
         html.Label("Workspace URL", className="conn-label"),
         dbc.Input(
@@ -835,7 +1019,8 @@ def _sso_section():
     ], id="sso-section", style={"display": "none"})
 
 
-def _custom_section():
+def _custom_section() -> html.Div:
+    """Build the manual URL + token connection sub-section."""
     return html.Div([
         html.Label("Workspace URL", className="conn-label"),
         dbc.Input(
@@ -1008,6 +1193,7 @@ app.layout = html.Div([
     Input("conn-config", "data"),
 )
 def init_on_load(_, conn_config):
+    """Callback 1: Populate topbar user chip, host label, and workspace name."""
     host, token = _resolve_conn(conn_config)
     host_label = html.Span(
         (host or "").replace("https://", ""),
@@ -1047,6 +1233,7 @@ def init_on_load(_, conn_config):
     prevent_initial_call=True,
 )
 def toggle_deploy_modal(n, is_open):
+    """Callback 1b: Toggle the deploy-instructions modal."""
     return not is_open
 
 
@@ -1058,6 +1245,7 @@ def toggle_deploy_modal(n, is_open):
     prevent_initial_call=True,
 )
 def toggle_about_modal(n, is_open):
+    """Callback 1c: Toggle the about modal."""
     return not is_open
 
 
@@ -1105,6 +1293,7 @@ app.clientside_callback(
     prevent_initial_call=True,
 )
 def populate_dropdown(is_open, conn_config):
+    """Callback 2b: Fetch SCIM identity and populate the dropdown panel."""
     if not is_open:
         return [no_update] * 9
 
@@ -1191,6 +1380,7 @@ def populate_dropdown(is_open, conn_config):
     Input("conn-mode-radio", "value"),
 )
 def toggle_conn_mode(mode):
+    """Callback 4: Show/hide the profile, SSO, or custom connection section."""
     hide = {"display": "none"}
     if mode == "profile":
         return {}, hide, hide
@@ -1205,6 +1395,7 @@ def toggle_conn_mode(mode):
     Input("profile-select", "value"),
 )
 def show_profile_hint(profile):
+    """Callback 5: Display auth type and host hint when the selected profile changes."""
     if not profile:
         return ""
     try:
@@ -1238,6 +1429,11 @@ def show_profile_hint(profile):
     prevent_initial_call=True,
 )
 def apply_connection(n_clicks, mode, profile, sso_host, custom_host, custom_token):
+    """Callback 6: Validate and apply the chosen connection settings.
+
+    Writes a new ``conn-config`` store value on success and may kick
+    off a background SSO browser flow for the ``"sso"`` mode.
+    """
     if not n_clicks:
         return no_update, no_update, no_update
 
@@ -1307,6 +1503,7 @@ def apply_connection(n_clicks, mode, profile, sso_host, custom_host, custom_toke
     prevent_initial_call=True,
 )
 def poll_sso(n_intervals):
+    """Callback 6b: Poll for SSO browser-OAuth completion."""
     # Find the host that has a pending or completed SSO flow
     with _sso_lock:
         host = None
@@ -1349,6 +1546,7 @@ def poll_sso(n_intervals):
     prevent_initial_call=True,
 )
 def reauth(n_clicks, profile):
+    """Callback 7: Re-authenticate by launching ``databricks auth login`` in the background."""
     if not n_clicks:
         return no_update
     p = profile or DATABRICKS_PROFILE
@@ -1375,6 +1573,7 @@ def reauth(n_clicks, profile):
     prevent_initial_call=True,
 )
 def select_endpoint(n_clicks_list, btn_ids):
+    """Callback 8: Write the clicked endpoint to ``selected-endpoint`` store."""
     from dash import callback_context as ctx
     if not ctx.triggered:
         return no_update
@@ -1397,6 +1596,7 @@ def select_endpoint(n_clicks_list, btn_ids):
     prevent_initial_call=True,
 )
 def sync_active_button(endpoint, btn_ids):
+    """Callback 8b: Highlight the active sidebar button and open its accordion section."""
     active_id = (endpoint or {}).get("id", "")
     classes = ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
     # Open the accordion section for the endpoint's category
@@ -1416,6 +1616,7 @@ def sync_active_button(endpoint, btn_ids):
     prevent_initial_call=True,
 )
 def render_endpoint_detail(endpoint: Optional[Dict]):
+    """Callback 9: Render the endpoint detail card (header, path, params, Execute button)."""
     if not endpoint:
         return WELCOME, "form-panel"
     prefill = endpoint.get("_prefill", {})
@@ -1461,6 +1662,7 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
     prevent_initial_call=True,
 )
 def restore_cached_response(endpoint, cache):
+    """Callback 9b: Restore a previously cached response when switching endpoints."""
     if not endpoint:
         return _RESPONSE_EMPTY, None
     ep_id = endpoint.get("id", "")
@@ -1490,6 +1692,7 @@ def restore_cached_response(endpoint, cache):
     prevent_initial_call=True,
 )
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config, cache):
+    """Callback 10: Execute the selected API call and render the response."""
     if not n_clicks or not endpoint:
         return no_update, no_update, no_update, no_update, no_update, no_update
 
@@ -1563,6 +1766,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
     prevent_initial_call=True,
 )
 def start_pagination(last_req):
+    """Callback 11: Seed the pagination trigger store after each Execute."""
     if not last_req:
         return {}, True
     initial_data = last_req.get("initial_data", {})
@@ -1599,6 +1803,12 @@ def start_pagination(last_req):
     prevent_initial_call=True,
 )
 def tick_fetch(n_intervals, page_trigger, page_state, conn_config):
+    """Callback 11b: Fetch the next page on each ticker interval.
+
+    This is the **primary** writer of ``page-state`` -- it must not
+    use ``allow_duplicate`` so that downstream callbacks
+    (``sync_status_bar``, ``render_when_done``) fire reliably.
+    """
     trigger = page_trigger or {}
     state   = page_state  or {}
 
@@ -1692,6 +1902,7 @@ def tick_fetch(n_intervals, page_trigger, page_state, conn_config):
     prevent_initial_call=True,
 )
 def sync_status_bar(page_state):
+    """Callback 11c: Update the fetch-status bar from ``page-state``."""
     state = page_state or {}
     total = state.get("total_items", 0)
     elapsed = state.get("elapsed_ms", 0)
@@ -1738,6 +1949,7 @@ def sync_status_bar(page_state):
     prevent_initial_call=True,
 )
 def render_when_done(page_state, cache):
+    """Callback 11c (cont.): Render the merged result once pagination completes."""
     state = page_state or {}
     if state.get("running") or not state.get("items"):
         return no_update, no_update, no_update
@@ -1772,6 +1984,7 @@ def render_when_done(page_state, cache):
     prevent_initial_call=True,
 )
 def abort_pagination(n_clicks, page_state):
+    """Callback 11g: Cancel in-flight automatic pagination."""
     if not n_clicks:
         return no_update
     state = page_state or {}
@@ -1781,7 +1994,19 @@ def abort_pagination(n_clicks, page_state):
 # 11h. "Load All" — background thread fetches pages; ticker polls progress.
 
 def _load_all_worker(last_req, host, token, list_key, initial_data):
-    """Background thread that fetches all pages and updates _load_all_state."""
+    """Background thread that fetches all remaining pages via offset/token.
+
+    Mutates the module-level :data:`_load_all_state` dict in place so
+    that the ``poll_load_all`` ticker callback can read progress.
+
+    Args:
+        last_req: The ``last-request`` store value from the initial
+            Execute call.
+        host: Workspace URL.
+        token: Bearer token.
+        list_key: Top-level JSON key that holds the item array.
+        initial_data: Parsed response from the first page.
+    """
     state = _load_all_state
     items = list(initial_data.get(list_key, []))
     limit = len(items) or 25
@@ -1844,6 +2069,7 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
     prevent_initial_call=True,
 )
 def start_load_all(n_clicks, last_req, conn_config):
+    """Callback 11h-start: Launch the background Load All thread and enable the ticker."""
     NO = (True, no_update, no_update, no_update)
     if not n_clicks or not last_req:
         return NO
@@ -1892,6 +2118,7 @@ def start_load_all(n_clicks, last_req, conn_config):
     prevent_initial_call=True,
 )
 def poll_load_all(n_intervals, cache):
+    """Callback 11h-tick: Poll the background Load All thread for progress."""
     NO = (no_update, no_update, no_update, no_update, no_update, no_update)
     state = _load_all_state
     pages = state.get("pages", 0)
@@ -1965,6 +2192,7 @@ def poll_load_all(n_intervals, cache):
     prevent_initial_call=True,
 )
 def abort_load_all(n_clicks):
+    """Callback 11h-abort: Signal the background Load All thread to stop."""
     if not n_clicks:
         return no_update, no_update
     _load_all_state["running"] = False
@@ -1984,6 +2212,7 @@ def abort_load_all(n_clicks):
     prevent_initial_call=True,
 )
 def abort_load_all_on_switch(endpoint):
+    """Callback 11h-abort-on-switch: Auto-cancel Load All when a different endpoint is selected."""
     if _load_all_state.get("running"):
         _load_all_state["running"] = False
         _load_all_state["error"] = "Cancelled"
@@ -1999,6 +2228,7 @@ def abort_load_all_on_switch(endpoint):
     State({"type": "endpoint-btn", "id": ALL}, "id"),
 )
 def filter_endpoints(query, btn_ids):
+    """Callback 13: Filter sidebar buttons by name, path, category, or method."""
     if not query or not query.strip():
         return [{"display": "flex"} for _ in btn_ids]
     q = query.strip().lower()
@@ -2072,6 +2302,7 @@ app.clientside_callback(
     prevent_initial_call=True,
 )
 def handle_iframe_link_click(link_data, conn_config, cache):
+    """Callback 16: Navigate to a *get* endpoint when an inline ID link is clicked."""
     if not link_data:
         return no_update, no_update, no_update
     get_id = link_data.get("gid", "")
@@ -2142,6 +2373,7 @@ app.clientside_callback(
     prevent_initial_call=True,
 )
 def handle_sp_item_click(n_clicks_list, chips_data):
+    """Callback 18: Translate a side-panel item click into an iframe-link-click event."""
     from dash import callback_context
     if not callback_context.triggered or not chips_data:
         return no_update
@@ -2167,6 +2399,7 @@ def handle_sp_item_click(n_clicks_list, chips_data):
     prevent_initial_call=True,
 )
 def handle_sp_action_click(n_clicks_list, chips_data):
+    """Callback 18b: Translate a side-panel action button click into an iframe-link-click event."""
     from dash import callback_context
     if not callback_context.triggered or not chips_data:
         return no_update
@@ -2202,6 +2435,7 @@ def handle_sp_action_click(n_clicks_list, chips_data):
     prevent_initial_call=True,
 )
 def update_curl_display(last_req, conn_config):
+    """Callback 19: Build a ready-to-copy ``curl`` command from the last request."""
     from urllib.parse import urlencode
     if not last_req:
         return "", {"display": "none"}
