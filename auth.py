@@ -17,7 +17,6 @@ Attributes:
     DATABRICKS_PROFILE: Default CLI profile name resolved from
         ``~/.databrickscfg`` at import time.
 """
-import configparser
 import os
 import time
 from functools import lru_cache

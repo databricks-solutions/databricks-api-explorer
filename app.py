@@ -39,7 +39,6 @@ from auth import (
     get_cli_profiles,
     get_current_user_info,
     get_host,
-    get_local_token,
     get_workspace_name,
     make_api_call,
     resolve_local_connection,
@@ -522,7 +521,6 @@ def _sso_try_cached(host: str) -> Optional[str]:
 
 
 # ── Background SSO browser flow ──────────────────────────────────────
-import threading
 
 _sso_result: Dict[str, Any] = {}  # host → {"token": ..., "error": ..., "done": bool}
 _sso_lock = threading.Lock()
@@ -623,10 +621,14 @@ def build_response_panel(
         A Dash ``html.Div`` component tree.
     """
     code, ms, data = result["status_code"], result["elapsed_ms"], result["data"]
-    if 200 <= code < 300:   status_color, icon = "success", "bi-check-circle-fill"
-    elif code == 0:         status_color, icon = "danger",  "bi-x-octagon-fill"
-    elif 400 <= code < 500: status_color, icon = "danger",  "bi-x-circle-fill"
-    else:                   status_color, icon = "warning", "bi-exclamation-circle-fill"
+    if 200 <= code < 300:
+        status_color, icon = "success", "bi-check-circle-fill"
+    elif code == 0:
+        status_color, icon = "danger", "bi-x-octagon-fill"
+    elif 400 <= code < 500:
+        status_color, icon = "danger", "bi-x-circle-fill"
+    else:
+        status_color, icon = "warning", "bi-exclamation-circle-fill"
 
     item_count = ""
     if isinstance(data, list):
@@ -2448,7 +2450,7 @@ def update_curl_display(last_req, conn_config):
     full_url = f"{base_url}?{urlencode(query_params)}" if query_params else base_url
 
     lines = [f"curl -X {method} \\", f"  '{full_url}' \\", f"  -H 'Authorization: Bearer {token}' \\",
-             f"  -H 'Content-Type: application/json'"]
+             "  -H 'Content-Type: application/json'"]
     if body:
         lines[-1] += " \\"
         lines.append(f"  -d '{json.dumps(body, separators=(',', ':'))}'")
