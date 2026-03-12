@@ -1417,7 +1417,7 @@ app.clientside_callback(
     Output("profile-select", "value"),
     Output("profile-select", "options"),
     Input("dropdown-open", "data"),
-    State("conn-config", "data"),
+    Input("conn-config", "data"),
     prevent_initial_call=True,
 )
 def populate_dropdown(is_open, conn_config):
@@ -1470,9 +1470,11 @@ def populate_dropdown(is_open, conn_config):
         except Exception:
             auth_type_display = "Unknown"
 
+    account_id = get_account_id(conn_config.get("profile"))
     auth_details = html.Div([
         html.Div([html.Span("Auth", className="auth-info-label"), html.Span(auth_type_display, className="auth-info-value font-mono")], className="auth-info-row"),
         html.Div([html.Span("Host", className="auth-info-label"), html.Span((host or "—").replace("https://", ""), className="auth-info-value font-mono small")], className="auth-info-row"),
+        html.Div([html.Span("Account ID", className="auth-info-label"), html.Span(account_id or "not available", className="auth-info-value font-mono small")], className="auth-info-row"),
         html.Div([html.Span("Email", className="auth-info-label"), html.Span(primary_email or "—", className="auth-info-value small")], className="auth-info-row") if primary_email else None,
         html.Div([html.Span("User ID", className="auth-info-label"), html.Span(user_id or "—", className="auth-info-value font-mono small")], className="auth-info-row") if user_id else None,
     ], className="auth-info-table")
