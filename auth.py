@@ -66,6 +66,112 @@ DATABRICKS_PROFILE: str = get_cli_profiles()[0]
 
 # ── Connection resolution ──────────────────────────────────────────────────────
 
+def get_account_id(profile: Optional[str] = None) -> Optional[str]:
+    """Read the ``account_id`` from a CLI profile's SDK Config.
+
+    Args:
+        profile: Profile name to inspect.  Defaults to
+            :data:`DATABRICKS_PROFILE`.
+
+    Returns:
+        The account ID string, or ``None`` if not configured or on
+        error.
+    """
+    try:
+        from databricks.sdk.core import Config  # noqa: PLC0415
+        cfg = Config(profile=profile or DATABRICKS_PROFILE)
+        return getattr(cfg, "account_id", None) or None
+    except Exception:
+        return None
+
+
+def _find_account_profile(account_id: str) -> Optional[str]:
+    """Find a CLI profile whose host is an accounts console URL.
+
+    Scans all profiles in ``~/.databrickscfg`` for one that has
+    ``host = https://accounts.*`` and the matching ``account_id``.
+
+    Args:
+        account_id: The Databricks account ID to match.
+
+    Returns:
+        The profile name, or ``None`` if no account-level profile
+        exists.
+    """
+    from databricks.sdk.core import Config  # noqa: PLC0415
+    for profile in get_cli_profiles():
+        try:
+            cfg = Config(profile=profile)
+            h = (cfg.host or "").lower()
+            if "accounts." in h and getattr(cfg, "account_id", None) == account_id:
+                return profile
+        except Exception:
+            continue
+    return None
+
+
+def resolve_account_connection(
+    conn_config: Optional[Dict],
+    accounts_host: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve host and token for the Databricks **accounts console**.
+
+    Account-level APIs require a token issued for the accounts
+    console, not the workspace.  This function first checks whether
+    the active profile already points to an accounts host; if not, it
+    searches for another profile that does (matching by
+    ``account_id``).
+
+    Args:
+        conn_config: The ``conn-config`` Dash store value.
+        accounts_host: The accounts console URL (e.g.
+            ``https://accounts.cloud.databricks.com``).
+
+    Returns:
+        A ``(accounts_host, token)`` tuple.  Either element may be
+        ``None`` on failure.
+    """
+    if not conn_config:
+        conn_config = {"mode": "profile", "profile": DATABRICKS_PROFILE}
+
+    mode = conn_config.get("mode", "profile")
+
+    # For custom / SSO modes the user provides their own token — pass it
+    # through and hope it's account-scoped.
+    if mode in ("custom", "sso"):
+        token = (conn_config.get("token") or "")
+        return accounts_host, (token or None)
+
+    # Profile mode — find a profile that targets the accounts console
+    profile = conn_config.get("profile") or DATABRICKS_PROFILE
+    try:
+        from databricks.sdk.core import Config  # noqa: PLC0415
+
+        # Check if the active profile itself already points to accounts.*
+        cfg = Config(profile=profile)
+        h = (cfg.host or "").lower()
+        if "accounts." in h and getattr(cfg, "account_id", None):
+            auth_val = cfg.authenticate().get("Authorization", "")
+            token = auth_val[7:] if auth_val.startswith("Bearer ") else None
+            return cfg.host.rstrip("/"), token
+
+        # Otherwise, look up the account_id and find another profile
+        account_id = getattr(cfg, "account_id", None) or None
+        if not account_id:
+            return accounts_host, None
+
+        acct_profile = _find_account_profile(account_id)
+        if not acct_profile:
+            return accounts_host, None
+
+        acct_cfg = Config(profile=acct_profile)
+        auth_val = acct_cfg.authenticate().get("Authorization", "")
+        token = auth_val[7:] if auth_val.startswith("Bearer ") else None
+        return (acct_cfg.host or accounts_host).rstrip("/"), token
+    except Exception:
+        return accounts_host, None
+
+
 def resolve_local_connection(
     conn_config: Optional[Dict],
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -315,7 +421,7 @@ def make_api_call(
         return {
             "status_code": 0,
             "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-            "data": {"error": "Request timed out after 30 seconds."},
+            "data": {"error": f"Request timed out after {timeout} seconds."},
             "success": False,
             "error": "Timeout",
             "url": url,

@@ -31,16 +31,28 @@ import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, dcc, html, no_update
 from flask import request as flask_request
 
-from api_catalog import API_CATALOG, ENDPOINT_MAP, TOTAL_CATEGORIES, TOTAL_ENDPOINTS, extract_chips, get_endpoint_by_id
+from api_catalog import (
+    ACCOUNT_API_CATALOG,
+    API_CATALOG,
+    ENDPOINT_MAP,
+    TOTAL_ACCOUNT_CATEGORIES,
+    TOTAL_ACCOUNT_ENDPOINTS,
+    TOTAL_CATEGORIES,
+    TOTAL_ENDPOINTS,
+    extract_chips,
+    get_endpoint_by_id,
+)
 from auth import (
     DATABRICKS_PROFILE,
     IS_DATABRICKS_APP,
     _get_local_config,
+    get_account_id,
     get_cli_profiles,
     get_current_user_info,
     get_host,
     get_workspace_name,
     make_api_call,
+    resolve_account_connection,
     resolve_local_connection,
 )
 from version import VERSION
@@ -603,6 +615,26 @@ def _resolve_conn(
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
+def _accounts_host(workspace_host: str) -> str:
+    """Derive the Databricks accounts console URL from a workspace host.
+
+    Args:
+        workspace_host: The workspace URL (e.g.
+            ``https://adb-123.azuredatabricks.net``).
+
+    Returns:
+        The accounts console URL (e.g.
+        ``https://accounts.azuredatabricks.net`` for Azure or
+        ``https://accounts.cloud.databricks.com`` for AWS/GCP).
+    """
+    h = (workspace_host or "").lower()
+    if "azuredatabricks" in h:
+        return "https://accounts.azuredatabricks.net"
+    if ".gcp.databricks.com" in h:
+        return "https://accounts.gcp.databricks.com"
+    return "https://accounts.cloud.databricks.com"
+
+
 def build_response_panel(
     result: Dict[str, Any],
     chips: Optional[List[Dict]] = None,
@@ -639,10 +671,34 @@ def build_response_panel(
                 item_count = f" · {len(v)} items"
                 break
 
-    viewer = html.Iframe(
-        srcDoc=_build_json_tree_html(data, chips),
-        style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
-    )
+    # CSV response: render as a scrollable HTML table
+    csv_text = result.get("_csv")
+    if csv_text:
+        import csv as _csv_mod
+        import io
+        reader = _csv_mod.reader(io.StringIO(csv_text))
+        rows = list(reader)
+        if rows:
+            headers = rows[0]
+            table_header = html.Thead(html.Tr([html.Th(h) for h in headers]))
+            table_body = html.Tbody([
+                html.Tr([html.Td(cell) for cell in row])
+                for row in rows[1:]
+            ])
+            item_count = f" · {len(rows) - 1} rows"
+            viewer = html.Div([
+                html.Table([table_header, table_body], className="csv-table"),
+            ], className="csv-viewer")
+        else:
+            viewer = html.Iframe(
+                srcDoc=_build_json_tree_html(data, chips),
+                style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
+            )
+    else:
+        viewer = html.Iframe(
+            srcDoc=_build_json_tree_html(data, chips),
+            style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
+        )
     wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
 
     # Build side panel with chip items
@@ -797,18 +853,18 @@ def build_param_form(
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
-def build_sidebar() -> html.Div:
-    """Build the left sidebar with categorised endpoint buttons.
+def _build_accordion_items(catalog: Dict[str, Any]) -> list:
+    """Build accordion items for a given API catalog.
 
-    Each category becomes a collapsible accordion item containing
-    buttons for every endpoint.  A search input at the top filters
-    the visible buttons (driven by callback 13).
+    Args:
+        catalog: Either :data:`API_CATALOG` or
+            :data:`ACCOUNT_API_CATALOG`.
 
     Returns:
-        A Dash ``html.Div`` containing the sidebar layout.
+        A list of :class:`dbc.AccordionItem` components.
     """
     items = []
-    for cat_name, cat in API_CATALOG.items():
+    for cat_name, cat in catalog.items():
         btns = [
             html.Button(
                 [html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
@@ -826,13 +882,46 @@ def build_sidebar() -> html.Div:
             dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"),
         ], className="cat-header d-flex align-items-center w-100")
         items.append(dbc.AccordionItem(html.Div(btns, className="endpoint-list"), title=title_el))
+    return items
+
+
+def build_sidebar() -> html.Div:
+    """Build the left sidebar with scope switcher and categorised endpoint buttons.
+
+    A toggle at the top switches between Workspace APIs and Account
+    APIs.  Each category becomes a collapsible accordion item.  A
+    search input filters the visible buttons (callback 13).
+
+    Returns:
+        A Dash ``html.Div`` containing the sidebar layout.
+    """
+    scope_switcher = html.Div([
+        html.Button(
+            [html.I(className="bi bi-pc-display me-1"), "Workspace"],
+            id="scope-workspace-btn",
+            n_clicks=0,
+            className="scope-btn scope-btn-active",
+        ),
+        html.Button(
+            [html.I(className="bi bi-globe me-1"), "Account"],
+            id="scope-account-btn",
+            n_clicks=0,
+            className="scope-btn",
+        ),
+    ], className="scope-switcher")
 
     return html.Div([
+        scope_switcher,
         html.Div([
             html.I(className="bi bi-search"),
             dbc.Input(id="search-input", placeholder="Search APIs…", type="text", className="sidebar-search"),
         ], className="search-wrapper"),
-        dbc.Accordion(items, start_collapsed=True, id="api-accordion", className="api-accordion"),
+        dbc.Accordion(
+            _build_accordion_items(API_CATALOG),
+            start_collapsed=True,
+            id="api-accordion",
+            className="api-accordion",
+        ),
     ], id="sidebar", className="sidebar")
 
 
@@ -1104,19 +1193,22 @@ _DROPDOWN_OVERLAY = html.Div(
 
 
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
+_ALL_ENDPOINTS = TOTAL_ENDPOINTS + TOTAL_ACCOUNT_ENDPOINTS
+_ALL_CATEGORIES = TOTAL_CATEGORIES + TOTAL_ACCOUNT_CATEGORIES
+
 WELCOME = html.Div([
     html.Div([
         html.Div("◈", className="welcome-icon"),
         html.H3("Select an API Endpoint", className="welcome-title"),
         html.P(
             "Choose a category from the sidebar, then click any endpoint to explore "
-            "Databricks workspace APIs in real-time.",
+            "Databricks workspace and account APIs in real-time.",
             className="welcome-subtitle",
         ),
         html.Hr(className="welcome-divider"),
         html.Div([
-            html.Div([html.I(className="bi bi-lightning-fill me-2", style={"color": "#00d4ff"}), f"{TOTAL_ENDPOINTS} endpoints"], className="stat-pill"),
-            html.Div([html.I(className="bi bi-collection-fill me-2", style={"color": "#00d4ff"}), f"{TOTAL_CATEGORIES} categories"], className="stat-pill"),
+            html.Div([html.I(className="bi bi-lightning-fill me-2", style={"color": "#00d4ff"}), f"{_ALL_ENDPOINTS} endpoints"], className="stat-pill"),
+            html.Div([html.I(className="bi bi-collection-fill me-2", style={"color": "#00d4ff"}), f"{_ALL_CATEGORIES} categories"], className="stat-pill"),
             html.Div([html.I(className="bi bi-shield-check-fill me-2", style={"color": "#00d4ff"}), "OBO + SSO auth"], className="stat-pill"),
         ], className="welcome-stats"),
     ], className="welcome-content"),
@@ -1148,6 +1240,7 @@ app.layout = html.Div([
 
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
+    dcc.Store(id="api-scope", data="workspace"),     # "workspace" or "account"
 
     TOPBAR,
     _DROPDOWN_OVERLAY,
@@ -1185,6 +1278,39 @@ app.layout = html.Div([
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
+
+# 0a. Scope switcher — toggle between Workspace and Account APIs
+app.clientside_callback(
+    """
+    function(wsClicks, acctClicks) {
+        var triggered = dash_clientside.callback_context.triggered;
+        if (!triggered || !triggered.length) return dash_clientside.no_update;
+        var tid = triggered[0].prop_id;
+        return tid.indexOf("scope-account") !== -1 ? "account" : "workspace";
+    }
+    """,
+    Output("api-scope", "data"),
+    Input("scope-workspace-btn", "n_clicks"),
+    Input("scope-account-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# 0b. Rebuild the accordion and highlight the active scope button
+@app.callback(
+    Output("api-accordion", "children"),
+    Output("scope-workspace-btn", "className"),
+    Output("scope-account-btn", "className"),
+    Input("api-scope", "data"),
+)
+def rebuild_sidebar_for_scope(scope):
+    """Callback 0b: Rebuild the accordion items when the API scope changes."""
+    if scope == "account":
+        items = _build_accordion_items(ACCOUNT_API_CATALOG)
+        return items, "scope-btn", "scope-btn scope-btn-active"
+    items = _build_accordion_items(API_CATALOG)
+    return items, "scope-btn scope-btn-active", "scope-btn"
+
 
 # 1. Init: populate topbar on page load or connection change
 @app.callback(
@@ -1603,7 +1729,9 @@ def sync_active_button(endpoint, btn_ids):
     classes = ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
     # Open the accordion section for the endpoint's category
     cat_name = (endpoint or {}).get("category", "")
-    cat_keys = list(API_CATALOG.keys())
+    scope = (endpoint or {}).get("scope", "workspace")
+    catalog = ACCOUNT_API_CATALOG if scope == "account" else API_CATALOG
+    cat_keys = list(catalog.keys())
     active_item = no_update
     if cat_name in cat_keys:
         active_item = f"item-{cat_keys.index(cat_name)}"
@@ -1615,13 +1743,22 @@ def sync_active_button(endpoint, btn_ids):
     Output("endpoint-detail", "children"),
     Output("endpoint-detail", "className"),
     Input("selected-endpoint", "data"),
+    State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def render_endpoint_detail(endpoint: Optional[Dict]):
+def render_endpoint_detail(endpoint: Optional[Dict], conn_config):
     """Callback 9: Render the endpoint detail card (header, path, params, Execute button)."""
     if not endpoint:
         return WELCOME, "form-panel"
-    prefill = endpoint.get("_prefill", {})
+    prefill = dict(endpoint.get("_prefill", {}))
+
+    # Auto-fill account_id for account-scope endpoints from the CLI profile
+    if endpoint.get("scope") == "account" and "account_id" not in prefill:
+        profile = (conn_config or {}).get("profile")
+        acct_id = get_account_id(profile)
+        if acct_id:
+            prefill["account_id"] = acct_id
+
     cat_color = endpoint.get("category_color", "#00d4ff")
     content = html.Div([
         html.Div([
@@ -1637,10 +1774,23 @@ def render_endpoint_detail(endpoint: Optional[Dict]):
         html.Div("Parameters", className="param-section-title"),
         build_param_form(endpoint, prefill),
         html.Hr(className="divider"),
-        html.Button(
-            [html.I(className="bi bi-play-fill me-2"), "Execute"],
-            id="execute-btn", n_clicks=0, className="execute-btn",
-        ),
+        html.Div([
+            html.Button(
+                [html.I(className="bi bi-play-fill me-2"), "Execute"],
+                id="execute-btn", n_clicks=0, className="execute-btn",
+            ),
+            html.Div([
+                html.I(className="bi bi-clock me-1"),
+                dbc.Input(
+                    id="timeout-input",
+                    type="number",
+                    value=endpoint.get("timeout", 30),
+                    min=1, max=600, step=1,
+                    className="timeout-input font-mono",
+                ),
+                html.Span("s", className="timeout-unit"),
+            ], className="timeout-control", title="Timeout in seconds"),
+        ], className="execute-row"),
         html.Div([
             html.Div([
                 html.Span([html.I(className="bi bi-terminal me-2"), "curl"], className="curl-label"),
@@ -1689,11 +1839,12 @@ def restore_cached_response(endpoint, cache):
     State({"type": "param-input", "name": ALL}, "value"),
     State({"type": "param-input", "name": ALL}, "id"),
     State("body-textarea", "value"),
+    State("timeout-input", "value"),
     State("conn-config", "data"),
     State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, conn_config, cache):
+def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, timeout_val, conn_config, cache):
     """Callback 10: Execute the selected API call and render the response."""
     if not n_clicks or not endpoint:
         return no_update, no_update, no_update, no_update, no_update, no_update
@@ -1727,16 +1878,37 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, con
         except json.JSONDecodeError as e:
             return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update, {"display": "none"}
 
-    host, token = _resolve_conn(conn_config)
-    if not token:
-        return build_error_panel("No auth token. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}
-    if not host:
+    ws_host, ws_token = _resolve_conn(conn_config)
+    if not ws_host:
         return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}
 
+    # Account-scope endpoints need a token issued for the accounts console
+    is_account = endpoint.get("scope") == "account"
+    if is_account:
+        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+    else:
+        host, token = ws_host, ws_token
+
+    if not token:
+        msg = "No auth token for the accounts console. Ensure your CLI profile has an account_id configured." if is_account else "No auth token. Configure a connection in the user menu."
+        return build_error_panel(msg), no_update, time.time(), None, no_update, {"display": "none"}
+
+    try:
+        ep_timeout = max(1, int(timeout_val or endpoint.get("timeout", 30)))
+    except (ValueError, TypeError):
+        ep_timeout = endpoint.get("timeout", 30)
+    resp_format = endpoint.get("response_format")
     result = make_api_call(
         method=method, path=path, token=token, host=host,
         query_params=params if method == "GET" else None, body=body,
+        timeout=ep_timeout,
     )
+
+    # CSV responses: parse _raw text into a table instead of showing raw text
+    if resp_format == "csv" and result["success"] and isinstance(result["data"], dict) and "_raw" in result["data"]:
+        result["_csv"] = result["data"]["_raw"]
+        result["data"] = {"message": "CSV data downloaded successfully. See table below."}
+
     chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
     resp_data = result["data"] if isinstance(result["data"], dict) else {}
     has_more = bool(resp_data.get("has_more"))
@@ -2321,17 +2493,32 @@ def handle_iframe_link_click(link_data, conn_config, cache):
     path = endpoint["path"]
     query_params: Dict[str, Any] = {}
     prefill = {param_name: value, **extras}
-    for k, v in {param_name: value, **extras}.items():
+
+    # Auto-fill account_id for account-scope get endpoints
+    if endpoint.get("scope") == "account" and "account_id" not in prefill:
+        profile = (conn_config or {}).get("profile")
+        acct_id = get_account_id(profile)
+        if acct_id:
+            prefill["account_id"] = acct_id
+
+    for k, v in prefill.items():
         if k in endpoint.get("path_params", []):
-            path = path.replace(f"{{{k}}}", v)
+            path = path.replace(f"{{{k}}}", str(v))
         else:
             query_params[k] = v
 
-    host, token = _resolve_conn(conn_config)
+    ws_host, ws_token = _resolve_conn(conn_config)
+    if not ws_host:
+        return no_update, build_error_panel("No workspace host."), no_update
+
+    is_account = endpoint.get("scope") == "account"
+    if is_account:
+        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+    else:
+        host, token = ws_host, ws_token
+
     if not token:
         return no_update, build_error_panel("No auth token."), no_update
-    if not host:
-        return no_update, build_error_panel("No workspace host."), no_update
 
     method = endpoint.get("method", "GET")
     body = None

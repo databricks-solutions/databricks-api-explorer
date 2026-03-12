@@ -1,20 +1,29 @@
-"""Databricks Workspace API Catalog.
+"""Databricks API Catalog -- Workspace and Account endpoints.
 
 Declarative registry of every Databricks REST API endpoint exposed by
-the explorer UI, organised by category.  The two main data structures
-are:
+the explorer UI, organised by scope and category.
 
-* :data:`API_CATALOG` -- nested dict of categories → endpoint
-  definitions.
-* :data:`LIST_TO_GET` -- mapping that drives inline navigation from
-  list responses to their corresponding *get* endpoints.
+Two top-level catalogs:
+
+* :data:`API_CATALOG` -- **Workspace** APIs (target: workspace URL).
+* :data:`ACCOUNT_API_CATALOG` -- **Account** APIs (target:
+  ``accounts.cloud.databricks.com`` or ``accounts.azuredatabricks.net``).
+
+Each catalog is a nested dict of categories → endpoint definitions.
+:data:`LIST_TO_GET` / :data:`ACCOUNT_LIST_TO_GET` drive inline
+navigation links from list responses to their corresponding *get*
+endpoints.
 
 Attributes:
-    API_CATALOG: Master endpoint registry keyed by category name.
-    LIST_TO_GET: Mapping of list-endpoint IDs to get-endpoint metadata.
-    ENDPOINT_MAP: Flat map of *all* endpoints keyed by their string ID.
-    TOTAL_ENDPOINTS: Total number of registered endpoints.
-    TOTAL_CATEGORIES: Total number of API categories.
+    API_CATALOG: Workspace endpoint registry keyed by category name.
+    ACCOUNT_API_CATALOG: Account endpoint registry keyed by category.
+    LIST_TO_GET: Workspace list→get link map.
+    ACCOUNT_LIST_TO_GET: Account list→get link map.
+    ENDPOINT_MAP: Flat map of *all* endpoints (both scopes) keyed by ID.
+    TOTAL_ENDPOINTS: Total number of workspace endpoints.
+    TOTAL_CATEGORIES: Total number of workspace categories.
+    TOTAL_ACCOUNT_ENDPOINTS: Total number of account endpoints.
+    TOTAL_ACCOUNT_CATEGORIES: Total number of account categories.
 """
 
 from typing import Any, Dict, List, Optional
@@ -660,6 +669,547 @@ LIST_TO_GET: Dict[str, Any] = {
 }
 
 
+# ── Account-level API Catalog ─────────────────────────────────────────────────
+# These target the accounts console (accounts.cloud.databricks.com) rather
+# than an individual workspace.  Every path includes {account_id}.
+
+
+def _usage_start_month() -> str:
+    """Return YYYY-MM for three months ago (default start for Usage Download)."""
+    from datetime import date, timedelta  # noqa: PLC0415
+    d = date.today().replace(day=1) - timedelta(days=90)
+    return d.strftime("%Y-%m")
+
+
+def _usage_end_month() -> str:
+    """Return YYYY-MM for the current month (default end for Usage Download)."""
+    from datetime import date  # noqa: PLC0415
+    return date.today().strftime("%Y-%m")
+
+
+ACCOUNT_API_CATALOG: Dict[str, Any] = {
+    "Account Users": {
+        "icon": "bi-people",
+        "color": "#14b8a6",
+        "endpoints": [
+            {
+                "id": "acct-users-list",
+                "name": "List Users",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/Users",
+                "description": "Lists all users in the Databricks account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("startIndex", "1-based start index.", default="1", type_=INT),
+                    _p("count", "Max results per page.", default="100", type_=INT),
+                    _p("filter", "SCIM filter expression."),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-users-get",
+                "name": "Get User",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/Users/{user_id}",
+                "description": "Gets details for a single user by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("user_id", "The user's SCIM ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "user_id"],
+            },
+        ],
+    },
+    "Account Groups": {
+        "icon": "bi-people-fill",
+        "color": "#8b5cf6",
+        "endpoints": [
+            {
+                "id": "acct-groups-list",
+                "name": "List Groups",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/Groups",
+                "description": "Lists all groups in the Databricks account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("startIndex", "1-based start index.", default="1", type_=INT),
+                    _p("count", "Max results per page.", default="100", type_=INT),
+                    _p("filter", "SCIM filter expression."),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-groups-get",
+                "name": "Get Group",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/Groups/{group_id}",
+                "description": "Gets details for a single group by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("group_id", "The group's SCIM ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "group_id"],
+            },
+        ],
+    },
+    "Service Principals": {
+        "icon": "bi-robot",
+        "color": "#f97316",
+        "endpoints": [
+            {
+                "id": "acct-sp-list",
+                "name": "List Service Principals",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/ServicePrincipals",
+                "description": "Lists all service principals in the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("startIndex", "1-based start index.", default="1", type_=INT),
+                    _p("count", "Max results per page.", default="100", type_=INT),
+                    _p("filter", "SCIM filter expression."),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-sp-get",
+                "name": "Get Service Principal",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/scim/v2/ServicePrincipals/{sp_id}",
+                "description": "Gets a single service principal by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("sp_id", "The service principal's SCIM ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "sp_id"],
+            },
+        ],
+    },
+    "Workspaces": {
+        "icon": "bi-building",
+        "color": "#00d4ff",
+        "endpoints": [
+            {
+                "id": "acct-workspaces-list",
+                "name": "List Workspaces",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/workspaces",
+                "description": "Lists all workspaces associated with the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-workspaces-get",
+                "name": "Get Workspace",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/workspaces/{workspace_id}",
+                "description": "Gets details for a workspace by its numeric ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("workspace_id", "The workspace ID.", required=True, type_=INT),
+                ],
+                "body": None,
+                "path_params": ["account_id", "workspace_id"],
+            },
+        ],
+    },
+    "Credentials": {
+        "icon": "bi-key-fill",
+        "color": "#eab308",
+        "endpoints": [
+            {
+                "id": "acct-credentials-list",
+                "name": "List Credential Configs",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/credentials",
+                "description": "Lists all credential configurations for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-credentials-get",
+                "name": "Get Credential Config",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/credentials/{credentials_id}",
+                "description": "Gets a credential configuration by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("credentials_id", "The credential configuration ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "credentials_id"],
+            },
+        ],
+    },
+    "Storage": {
+        "icon": "bi-bucket-fill",
+        "color": "#10b981",
+        "endpoints": [
+            {
+                "id": "acct-storage-list",
+                "name": "List Storage Configs",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/storage-configurations",
+                "description": "Lists all storage configurations for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-storage-get",
+                "name": "Get Storage Config",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/storage-configurations/{storage_configuration_id}",
+                "description": "Gets a storage configuration by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("storage_configuration_id", "The storage configuration ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "storage_configuration_id"],
+            },
+        ],
+    },
+    "Networks": {
+        "icon": "bi-diagram-3-fill",
+        "color": "#6366f1",
+        "endpoints": [
+            {
+                "id": "acct-networks-list",
+                "name": "List Network Configs",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/networks",
+                "description": "Lists all network configurations for the account (customer-managed VPC).",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-networks-get",
+                "name": "Get Network Config",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/networks/{network_id}",
+                "description": "Gets a network configuration by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("network_id", "The network configuration ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "network_id"],
+            },
+        ],
+    },
+    "Private Access": {
+        "icon": "bi-shield-lock-fill",
+        "color": "#ec4899",
+        "endpoints": [
+            {
+                "id": "acct-private-access-list",
+                "name": "List Private Access Settings",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/private-access-settings",
+                "description": "Lists all private access settings for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-private-access-get",
+                "name": "Get Private Access Settings",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/private-access-settings/{private_access_settings_id}",
+                "description": "Gets a private access settings object by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("private_access_settings_id", "The private access settings ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "private_access_settings_id"],
+            },
+        ],
+    },
+    "VPC Endpoints": {
+        "icon": "bi-plug-fill",
+        "color": "#a855f7",
+        "endpoints": [
+            {
+                "id": "acct-vpc-endpoints-list",
+                "name": "List VPC Endpoints",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/vpc-endpoints",
+                "description": "Lists all registered VPC endpoints for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-vpc-endpoints-get",
+                "name": "Get VPC Endpoint",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/vpc-endpoints/{vpc_endpoint_id}",
+                "description": "Gets a VPC endpoint by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("vpc_endpoint_id", "The VPC endpoint ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "vpc_endpoint_id"],
+            },
+        ],
+    },
+    "Encryption Keys": {
+        "icon": "bi-lock-fill",
+        "color": "#f59e0b",
+        "endpoints": [
+            {
+                "id": "acct-keys-list",
+                "name": "List Encryption Key Configs",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/customer-managed-keys",
+                "description": "Lists all customer-managed encryption key configurations.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-keys-get",
+                "name": "Get Encryption Key Config",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/customer-managed-keys/{customer_managed_key_id}",
+                "description": "Gets a customer-managed key configuration by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("customer_managed_key_id", "The key configuration ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "customer_managed_key_id"],
+            },
+        ],
+    },
+    "Log Delivery": {
+        "icon": "bi-journal-text",
+        "color": "#84cc16",
+        "endpoints": [
+            {
+                "id": "acct-log-delivery-list",
+                "name": "List Log Delivery Configs",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/log-delivery",
+                "description": "Lists all log delivery configurations for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("status", "Filter by status (ENABLED or DISABLED)."),
+                    _p("credentials_id", "Filter by credential config ID."),
+                    _p("storage_configuration_id", "Filter by storage config ID."),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-log-delivery-get",
+                "name": "Get Log Delivery Config",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/log-delivery/{log_delivery_configuration_id}",
+                "description": "Gets a log delivery configuration by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("log_delivery_configuration_id", "The log delivery config ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "log_delivery_configuration_id"],
+            },
+        ],
+    },
+    "Budgets": {
+        "icon": "bi-cash-stack",
+        "color": "#22d3ee",
+        "endpoints": [
+            {
+                "id": "acct-budgets-list",
+                "name": "List Budgets",
+                "method": "GET",
+                "path": "/api/2.1/accounts/{account_id}/budgets",
+                "description": "Lists all budgets for the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-budgets-get",
+                "name": "Get Budget",
+                "method": "GET",
+                "path": "/api/2.1/accounts/{account_id}/budgets/{budget_id}",
+                "description": "Gets a budget by its ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("budget_id", "The budget ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "budget_id"],
+            },
+        ],
+    },
+    "Usage Download": {
+        "icon": "bi-cloud-download",
+        "color": "#fb923c",
+        "endpoints": [
+            {
+                "id": "acct-usage-download",
+                "name": "Download Usage (CSV)",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/usage/download",
+                "description": "Downloads usage data as CSV for the specified date range.",
+                "response_format": "csv",
+                "timeout": 120,
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("start_month", "Start month (YYYY-MM format).", required=True, default=_usage_start_month()),
+                    _p("end_month", "End month (YYYY-MM format).", required=True, default=_usage_end_month()),
+                    _p("personal_data", "Include PII (true/false).", default="false"),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+        ],
+    },
+    "Account Metastores": {
+        "icon": "bi-layers-fill",
+        "color": "#6366f1",
+        "endpoints": [
+            {
+                "id": "acct-metastores-list",
+                "name": "List Metastores",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/metastores",
+                "description": "Lists all Unity Catalog metastores in the account.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-metastores-get",
+                "name": "Get Metastore",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/metastores/{metastore_id}",
+                "description": "Gets a Unity Catalog metastore by ID.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("metastore_id", "The metastore ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "metastore_id"],
+            },
+            {
+                "id": "acct-metastore-assignments-list",
+                "name": "List Metastore Assignments",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/metastores/{metastore_id}/workspaces",
+                "description": "Lists workspace–metastore assignments for a given metastore.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("metastore_id", "The metastore ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id", "metastore_id"],
+            },
+        ],
+    },
+    "Account Access Control": {
+        "icon": "bi-shield-check",
+        "color": "#fbbf24",
+        "endpoints": [
+            {
+                "id": "acct-ruleset-get",
+                "name": "Get Rule Set",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/access-control/rule-sets",
+                "description": "Gets the rule set for an account-level resource.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                    _p("name", "Rule set name (e.g. accounts/{account_id}/ruleSets/default)."),
+                    _p("etag", "Etag for optimistic concurrency."),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+        ],
+    },
+    "Account Settings": {
+        "icon": "bi-gear-fill",
+        "color": "#94a3b8",
+        "endpoints": [
+            {
+                "id": "acct-settings-personal-compute",
+                "name": "Get Personal Compute Setting",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/settings/types/shield_csp_enablement_ac/names/default",
+                "description": "Gets the personal compute (compliance security profile) setting.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+            {
+                "id": "acct-settings-ip-access-list",
+                "name": "List IP Access Lists",
+                "method": "GET",
+                "path": "/api/2.0/accounts/{account_id}/ip-access-lists",
+                "description": "Lists all IP access lists defined at the account level.",
+                "params": [
+                    _p("account_id", "Databricks account ID.", required=True),
+                ],
+                "body": None,
+                "path_params": ["account_id"],
+            },
+        ],
+    },
+}
+
+
+# ── Account List → Get link map ──────────────────────────────────────────────
+ACCOUNT_LIST_TO_GET: Dict[str, Any] = {
+    "acct-users-list":              ("acct-users-get",            "Resources",     "id",                          "user_id",                     "displayName"),
+    "acct-groups-list":             ("acct-groups-get",           "Resources",     "id",                          "group_id",                    "displayName"),
+    "acct-sp-list":                 ("acct-sp-get",               "Resources",     "id",                          "sp_id",                       "displayName"),
+    "acct-workspaces-list":         ("acct-workspaces-get",       None,            "workspace_id",                "workspace_id",                "workspace_name"),
+    "acct-credentials-list":        ("acct-credentials-get",      None,            "credentials_id",              "credentials_id",              "credentials_name"),
+    "acct-storage-list":            ("acct-storage-get",          None,            "storage_configuration_id",    "storage_configuration_id",    "storage_configuration_name"),
+    "acct-networks-list":           ("acct-networks-get",         None,            "network_id",                  "network_id",                  "network_name"),
+    "acct-private-access-list":     ("acct-private-access-get",   None,            "private_access_settings_id",  "private_access_settings_id",  "private_access_settings_name"),
+    "acct-vpc-endpoints-list":      ("acct-vpc-endpoints-get",    None,            "vpc_endpoint_id",             "vpc_endpoint_id",             "vpc_endpoint_name"),
+    "acct-keys-list":               ("acct-keys-get",             None,            "customer_managed_key_id",     "customer_managed_key_id",     None),
+    "acct-log-delivery-list":       ("acct-log-delivery-get",     "log_delivery_configurations", "config_id", "log_delivery_configuration_id", "config_name"),
+    "acct-budgets-list":            ("acct-budgets-get",          "budgets",       "budget_configuration_id",     "budget_id",                   "display_name"),
+    "acct-metastores-list":         ("acct-metastores-get",       None,            "metastore_id",                "metastore_id",                "name"),
+}
+
+
 def _nested_get(obj: Dict, dotted_key: str) -> Any:
     """Retrieve a value from a nested dict using a dotted key path.
 
@@ -702,7 +1252,7 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         * ``extras`` -- additional params to pass along.
         * ``actions`` -- list of secondary action dicts.
     """
-    mapping = LIST_TO_GET.get(endpoint_id)
+    mapping = LIST_TO_GET.get(endpoint_id) or ACCOUNT_LIST_TO_GET.get(endpoint_id)
     if not mapping:
         return []
     get_id, list_key, id_field, param_name, label_field = mapping[:5]
@@ -710,7 +1260,11 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
     actions_def = mapping[6] if len(mapping) > 6 else None
     if not get_id or not param_name:
         return []
-    items = data.get(list_key, []) if isinstance(data, dict) else []
+    # list_key=None means the response is a bare array
+    if list_key is None:
+        items = data if isinstance(data, list) else []
+    else:
+        items = data.get(list_key, []) if isinstance(data, dict) else []
     if not isinstance(items, list):
         return []
     chips = []
@@ -753,40 +1307,57 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
 def get_endpoint_by_id(endpoint_id: str) -> Optional[Dict[str, Any]]:
     """Find an endpoint definition by its unique string ID.
 
-    Searches every category in :data:`API_CATALOG`.
+    Searches every category in both :data:`API_CATALOG` and
+    :data:`ACCOUNT_API_CATALOG`.
 
     Args:
         endpoint_id: The endpoint ``id`` to look up (e.g.
-            ``"clusters-list"``).
+            ``"clusters-list"`` or ``"acct-users-list"``).
 
     Returns:
-        A copy of the endpoint dict enriched with ``category`` and
-        ``category_color`` keys, or ``None`` if not found.
+        A copy of the endpoint dict enriched with ``category``,
+        ``category_color``, and ``scope`` (``"workspace"`` or
+        ``"account"``) keys, or ``None`` if not found.
     """
-    for category_name, category in API_CATALOG.items():
-        for endpoint in category["endpoints"]:
-            if endpoint["id"] == endpoint_id:
-                return {**endpoint, "category": category_name, "category_color": category["color"]}
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account")):
+        for category_name, category in catalog.items():
+            for endpoint in category["endpoints"]:
+                if endpoint["id"] == endpoint_id:
+                    return {
+                        **endpoint,
+                        "category": category_name,
+                        "category_color": category["color"],
+                        "scope": scope,
+                    }
     return None
 
 
 def build_endpoint_map() -> Dict[str, Dict[str, Any]]:
     """Build a flat lookup of all endpoints keyed by their string ID.
 
-    Each value is an endpoint dict augmented with ``category`` and
-    ``category_color``.
+    Covers both workspace and account catalogs.  Each value is an
+    endpoint dict augmented with ``category``, ``category_color``,
+    and ``scope``.
 
     Returns:
         A ``{endpoint_id: endpoint_dict}`` mapping.
     """
-    return {
-        endpoint["id"]: {**endpoint, "category": cat_name, "category_color": cat["color"]}
-        for cat_name, cat in API_CATALOG.items()
-        for endpoint in cat["endpoints"]
-    }
+    result: Dict[str, Dict[str, Any]] = {}
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account")):
+        for cat_name, cat in catalog.items():
+            for endpoint in cat["endpoints"]:
+                result[endpoint["id"]] = {
+                    **endpoint,
+                    "category": cat_name,
+                    "category_color": cat["color"],
+                    "scope": scope,
+                }
+    return result
 
 
 ENDPOINT_MAP = build_endpoint_map()
 
-TOTAL_ENDPOINTS = sum(len(c["endpoints"]) for c in API_CATALOG.values())
-TOTAL_CATEGORIES = len(API_CATALOG)
+TOTAL_ENDPOINTS: int = sum(len(c["endpoints"]) for c in API_CATALOG.values())
+TOTAL_CATEGORIES: int = len(API_CATALOG)
+TOTAL_ACCOUNT_ENDPOINTS: int = sum(len(c["endpoints"]) for c in ACCOUNT_API_CATALOG.values())
+TOTAL_ACCOUNT_CATEGORIES: int = len(ACCOUNT_API_CATALOG)

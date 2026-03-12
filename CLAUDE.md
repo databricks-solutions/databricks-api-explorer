@@ -33,10 +33,12 @@ The entire UI and all server-side logic live here. Key sections:
 - Callbacks are numbered 1–12 (with 8b inserted between 8 and 9).
 
 ### `api_catalog.py` — endpoint definitions + chip extraction
-- `API_CATALOG` dict: all 15 categories and 45+ endpoints. Each endpoint has `id`, `method`, `path`, `params`, optional `path_params`, optional `body`.
-- `LIST_TO_GET` dict: maps a list-endpoint ID to `(get_endpoint_id, list_key, id_field, param_name, label_field)`. This drives the inline navigation links in list responses.
-- `extract_chips()` — reads `LIST_TO_GET`, walks the API response, returns chip dicts with `{get_id, param, id_field, value, label, title}`. The `id_field` key is what `highlight_json_components` uses to match JSON keys by name.
-- Adding a new endpoint: add it to `API_CATALOG` and, if it's a list with a corresponding get, add it to `LIST_TO_GET`.
+- Two catalogs: `API_CATALOG` (workspace APIs) and `ACCOUNT_API_CATALOG` (account-level APIs targeting `accounts.cloud.databricks.com`).
+- Each endpoint has `id`, `method`, `path`, `params`, optional `path_params`, optional `body`. Account endpoints also carry `scope: "account"` when looked up via `get_endpoint_by_id`/`ENDPOINT_MAP`.
+- `LIST_TO_GET` / `ACCOUNT_LIST_TO_GET` dicts: map list-endpoint IDs to `(get_endpoint_id, list_key, id_field, param_name, label_field)`. `list_key=None` means the response is a bare JSON array.
+- `extract_chips()` — reads both link maps, walks the API response, returns chip dicts. The `id_field` key is what the JSON tree viewer uses to match keys by name.
+- Adding a new endpoint: add it to the appropriate `*_CATALOG` and, if it's a list with a corresponding get, add it to the matching `*_LIST_TO_GET`.
+- A scope switcher in the sidebar toggles between Workspace and Account views. Account API calls route through `_accounts_host()` which derives the accounts console URL from the workspace host.
 
 ### `auth.py` — dual-mode authentication
 - `IS_DATABRICKS_APP = bool(os.getenv("DATABRICKS_CLIENT_SECRET"))` — this flag switches the entire app between local and Databricks App mode at startup.

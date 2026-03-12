@@ -119,6 +119,48 @@ body {
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
+/* ── Scope switcher (Workspace / Account) ─────────────────────────────────── */
+.scope-switcher {
+  display: flex;
+  gap: 0;
+  padding: 10px 12px 0;
+  flex-shrink: 0;
+}
+.scope-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scope-btn:first-child {
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+}
+.scope-btn:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.scope-btn:hover {
+  color: var(--text-2);
+  background: rgba(255,255,255,0.04);
+}
+.scope-btn-active {
+  color: var(--cyan) !important;
+  background: rgba(0,212,255,0.08) !important;
+  border-color: rgba(0,212,255,0.3) !important;
+}
+.scope-btn-active + .scope-btn {
+  border-left-color: rgba(0,212,255,0.3);
+}
+
 .search-wrapper {
   padding: 14px 12px 10px;
   display: flex;
@@ -434,6 +476,39 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Execute row — button + timeout control */
+.execute-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.timeout-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+.timeout-control .bi-clock { font-size: 13px; }
+.timeout-input {
+  width: 60px !important;
+  padding: 4px 6px !important;
+  font-size: 12px !important;
+  text-align: center;
+  background: var(--bg-tertiary, #1e293b) !important;
+  border: 1px solid var(--border-color, #334155) !important;
+  color: var(--text-primary, #f1f5f9) !important;
+  border-radius: var(--r-sm, 4px) !important;
+}
+.timeout-input:focus {
+  border-color: rgba(0,212,255,0.5) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.1) !important;
+}
+.timeout-unit {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
 /* ── Curl display ─────────────────────────────────────────────────── */
 .curl-display {
   display: none;
@@ -552,6 +627,46 @@ body {
   padding: 0;
   overflow: hidden;
 }
+
+/* CSV table viewer */
+.csv-viewer {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.csv-table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+}
+.csv-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-tertiary, #1e293b);
+  color: var(--text-primary, #f1f5f9);
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 12px;
+  border-bottom: 2px solid var(--border-color, #334155);
+  white-space: nowrap;
+  z-index: 1;
+}
+.csv-table td {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border-color, #1e293b);
+  color: var(--text-secondary, #94a3b8);
+  white-space: nowrap;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.csv-table tbody tr:hover td {
+  background: rgba(255,255,255,0.03);
+}
+.csv-viewer::-webkit-scrollbar { width: 6px; height: 6px; }
+.csv-viewer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
 /* ── Side panel ───────────────────────────────────────────── */
 .side-panel {
