@@ -1206,7 +1206,9 @@ ACCOUNT_LIST_TO_GET: Dict[str, Any] = {
     "acct-keys-list":               ("acct-keys-get",             None,            "customer_managed_key_id",     "customer_managed_key_id",     None),
     "acct-log-delivery-list":       ("acct-log-delivery-get",     "log_delivery_configurations", "config_id", "log_delivery_configuration_id", "config_name"),
     "acct-budgets-list":            ("acct-budgets-get",          "budgets",       "budget_configuration_id",     "budget_id",                   "display_name"),
-    "acct-metastores-list":         ("acct-metastores-get",       None,            "metastore_id",                "metastore_id",                "name"),
+    "acct-metastores-list":         ("acct-metastores-get",       "metastores",    "metastore_id",                "metastore_id",                "name",
+                                     None,
+                                     [("acct-metastore-assignments-list", "bi-diagram-3", "List workspace assignments", {"metastore_id": "metastore_id"})]),
 }
 
 
