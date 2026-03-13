@@ -50,6 +50,7 @@ from auth import (
     get_cli_profiles,
     get_current_user_info,
     get_host,
+    get_metastore_name,
     get_workspace_name,
     make_api_call,
     resolve_account_connection,
@@ -1212,7 +1213,10 @@ TOPBAR = dbc.Navbar(
             _MODE_BADGE,
             html.Div([
                 html.Span(id="workspace-name-display", className="workspace-name"),
-                html.Span(id="host-display", className="host-display"),
+                html.Div([
+                    html.Span(id="host-display", className="host-display"),
+                    html.Span(id="metastore-display", className="metastore-display"),
+                ], className="workspace-info-row"),
             ], className="workspace-info ms-3"),
             html.Button(
                 html.I(className="bi bi-gear-fill"),
@@ -1487,11 +1491,12 @@ def rebuild_sidebar_for_scope(scope):
     Output("user-display", "children"),
     Output("host-display", "children"),
     Output("workspace-name-display", "children"),
+    Output("metastore-display", "children"),
     Input("url", "pathname"),
     Input("conn-config", "data"),
 )
 def init_on_load(_, conn_config):
-    """Callback 1: Populate topbar user chip, host label, and workspace name."""
+    """Callback 1: Populate topbar user chip, host label, workspace name, and metastore."""
     host, token = _resolve_conn(conn_config)
     host_label = html.Span(
         (host or "").replace("https://", ""),
@@ -1499,6 +1504,7 @@ def init_on_load(_, conn_config):
     ) if host else html.Span("(not connected)", className="text-warning")
 
     ws_name = None
+    ms_name = None
     if token and host:
         info = get_current_user_info(token, host)
         name = info.get("display_name") or info.get("user_name") or "Unknown"
@@ -1507,7 +1513,13 @@ def init_on_load(_, conn_config):
             name,
             html.I(className="bi bi-chevron-down ms-1 small"),
         ], className="user-chip")
-        ws_name = get_workspace_name(token, host)
+        # Use CLI profile name when in profile mode, otherwise workspace name
+        conn_mode = (conn_config or {}).get("mode")
+        if conn_mode == "profile":
+            ws_name = (conn_config or {}).get("profile") or DATABRICKS_PROFILE
+        else:
+            ws_name = get_workspace_name(token, host)
+        ms_name = get_metastore_name(token, host)
     else:
         user_el = html.Span([
             html.I(className="bi bi-person-circle me-1"),
@@ -1516,11 +1528,16 @@ def init_on_load(_, conn_config):
         ], className="user-chip text-warning")
 
     ws_name_el = html.Span(
-        [html.I(className="bi bi-building me-1"), ws_name],
+        [html.I(className="bi bi-tag me-1"), ws_name],
         className="workspace-name-text"
     ) if ws_name else None
 
-    return user_el, host_label, ws_name_el
+    ms_name_el = html.Span(
+        [html.I(className="bi bi-layers me-1"), ms_name],
+        className="metastore-name-text"
+    ) if ms_name else None
+
+    return user_el, host_label, ws_name_el, ms_name_el
 
 
 # 1b. Toggle deploy modal

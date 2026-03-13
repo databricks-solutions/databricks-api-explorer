@@ -282,10 +282,11 @@ def get_workspace_name(token: str, host: str) -> Optional[str]:
 
     1. ``GET /api/2.0/workspace-conf?keys=workspaceName`` -- admin-set
        workspace display name.
-    2. ``GET /api/2.1/unity-catalog/metastore_summary`` -- metastore
-       name (often mirrors the workspace name).
-    3. Parse the hostname (e.g. ``adb-123.azuredatabricks.net`` →
+    2. Parse the hostname (e.g. ``adb-123.azuredatabricks.net`` →
        ``adb-123``).
+
+    Note: the metastore name fallback was removed because
+    :func:`get_metastore_name` is now displayed separately.
 
     Args:
         token: Bearer token for the workspace.
@@ -303,18 +304,29 @@ def get_workspace_name(token: str, host: str) -> Optional[str]:
         if name:
             return name
 
-    # 2 — Unity Catalog metastore summary
+    # 2 — parse hostname: "adb-123.azuredatabricks.net" → "adb-123"
+    #     custom domains:  "myco.databricks.com"        → "myco"
+    import re as _re
+    m = _re.match(r"https?://([^./]+)", host)
+    return m.group(1) if m else None
+
+
+def get_metastore_name(token: str, host: str) -> Optional[str]:
+    """Return the name of the Unity Catalog metastore attached to this workspace.
+
+    Args:
+        token: Bearer token for the workspace.
+        host: Full workspace URL including scheme.
+
+    Returns:
+        The metastore display name, or ``None`` if not available.
+    """
     r = make_api_call("GET", "/api/2.1/unity-catalog/metastore_summary", token, host)
     if r["success"]:
         name = (r["data"] or {}).get("name", "")
         if name:
             return name
-
-    # 3 — parse hostname: "adb-123.azuredatabricks.net" → "adb-123"
-    #     custom domains:  "myco.databricks.com"        → "myco"
-    import re as _re
-    m = _re.match(r"https?://([^./]+)", host)
-    return m.group(1) if m else None
+    return None
 
 
 # ── User Info ─────────────────────────────────────────────────────────────────
