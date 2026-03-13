@@ -937,6 +937,166 @@ _MODE_BADGE = html.Button(
     className="mode-badge-btn",
 )
 
+# ── Theme definitions ────────────────────────────────────────────────────────
+_THEMES = {
+    "midnight": {"label": "Midnight", "dark": True, "icon": "bi-moon-stars-fill",
+                 "bg-void": "#050810", "bg-dark": "#080c18", "bg-panel": "#0d1225",
+                 "bg-card": "rgba(255,255,255,0.028)", "bg-hover": "rgba(255,255,255,0.055)",
+                 "bg-active": "rgba(0,212,255,0.09)", "border": "rgba(255,255,255,0.07)",
+                 "border-hi": "rgba(0,212,255,0.45)", "text-hi": "#f8fafc",
+                 "text-1": "#e2e8f0", "text-2": "#94a3b8", "text-3": "#4b5563",
+                 "accent": "#00d4ff", "card-bg": "#1a1d23"},
+    "obsidian": {"label": "Obsidian", "dark": True, "icon": "bi-gem",
+                 "bg-void": "#0a0a0a", "bg-dark": "#111111", "bg-panel": "#181818",
+                 "bg-card": "rgba(255,255,255,0.035)", "bg-hover": "rgba(255,255,255,0.06)",
+                 "bg-active": "rgba(168,85,247,0.1)", "border": "rgba(255,255,255,0.08)",
+                 "border-hi": "rgba(168,85,247,0.5)", "text-hi": "#fafafa",
+                 "text-1": "#e0e0e0", "text-2": "#9e9e9e", "text-3": "#555555",
+                 "accent": "#a855f7", "card-bg": "#1e1e1e"},
+    "deep-ocean": {"label": "Deep Ocean", "dark": True, "icon": "bi-water",
+                   "bg-void": "#020617", "bg-dark": "#0f172a", "bg-panel": "#1e293b",
+                   "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.05)",
+                   "bg-active": "rgba(56,189,248,0.1)", "border": "rgba(255,255,255,0.06)",
+                   "border-hi": "rgba(56,189,248,0.5)", "text-hi": "#f8fafc",
+                   "text-1": "#cbd5e1", "text-2": "#64748b", "text-3": "#475569",
+                   "accent": "#38bdf8", "card-bg": "#1e293b"},
+    "aurora": {"label": "Aurora", "dark": True, "icon": "bi-stars",
+               "bg-void": "#030712", "bg-dark": "#0c1427", "bg-panel": "#162032",
+               "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.055)",
+               "bg-active": "rgba(16,185,129,0.1)", "border": "rgba(255,255,255,0.07)",
+               "border-hi": "rgba(16,185,129,0.5)", "text-hi": "#ecfdf5",
+               "text-1": "#d1fae5", "text-2": "#6ee7b7", "text-3": "#34d399",
+               "accent": "#10b981", "card-bg": "#1a2332"},
+    "snowlight": {"label": "Snowlight", "dark": False, "icon": "bi-sun-fill",
+                  "bg-void": "#f8fafc", "bg-dark": "#f1f5f9", "bg-panel": "#ffffff",
+                  "bg-card": "rgba(0,0,0,0.03)", "bg-hover": "rgba(0,0,0,0.05)",
+                  "bg-active": "rgba(99,102,241,0.08)", "border": "rgba(0,0,0,0.1)",
+                  "border-hi": "rgba(99,102,241,0.5)", "text-hi": "#0f172a",
+                  "text-1": "#1e293b", "text-2": "#64748b", "text-3": "#94a3b8",
+                  "accent": "#6366f1", "card-bg": "#ffffff"},
+    "paper": {"label": "Paper", "dark": False, "icon": "bi-file-earmark-text",
+              "bg-void": "#fafaf9", "bg-dark": "#f5f5f4", "bg-panel": "#ffffff",
+              "bg-card": "rgba(0,0,0,0.025)", "bg-hover": "rgba(0,0,0,0.04)",
+              "bg-active": "rgba(234,88,12,0.08)", "border": "rgba(0,0,0,0.08)",
+              "border-hi": "rgba(234,88,12,0.45)", "text-hi": "#1c1917",
+              "text-1": "#292524", "text-2": "#78716c", "text-3": "#a8a29e",
+              "accent": "#ea580c", "card-bg": "#ffffff"},
+    "cloud": {"label": "Cloud", "dark": False, "icon": "bi-cloud-sun-fill",
+              "bg-void": "#f0f9ff", "bg-dark": "#e0f2fe", "bg-panel": "#ffffff",
+              "bg-card": "rgba(0,0,0,0.02)", "bg-hover": "rgba(0,0,0,0.04)",
+              "bg-active": "rgba(14,165,233,0.08)", "border": "rgba(0,0,0,0.08)",
+              "border-hi": "rgba(14,165,233,0.45)", "text-hi": "#0c4a6e",
+              "text-1": "#0e7490", "text-2": "#64748b", "text-3": "#94a3b8",
+              "accent": "#0ea5e9", "card-bg": "#ffffff"},
+}
+
+_LANGUAGES = [
+    {"label": "English", "value": "en"},
+    {"label": "Deutsch", "value": "de"},
+    {"label": "Francais", "value": "fr"},
+    {"label": "Espanol", "value": "es"},
+    {"label": "Italiano", "value": "it"},
+    {"label": "Portugues", "value": "pt"},
+    {"label": "Nederlands", "value": "nl"},
+    {"label": "Japanese", "value": "ja"},
+    {"label": "Korean", "value": "ko"},
+    {"label": "Chinese (Simplified)", "value": "zh"},
+]
+
+# ── Settings Modal ───────────────────────────────────────────────────────────
+_dark_themes = [t for t in _THEMES.values() if t["dark"]]
+_light_themes = [t for t in _THEMES.values() if not t["dark"]]
+
+def _theme_card(tid: str, t: dict) -> html.Div:
+    """Build a clickable theme preview card."""
+    return html.Button([
+        html.Div([
+            html.Div(className="theme-swatch-bar", style={"background": t["accent"]}),
+            html.Div(className="theme-swatch-bg", style={"background": t["bg-void"]}),
+        ], className="theme-swatch"),
+        html.Div([
+            html.I(className=f"bi {t['icon']} me-1"),
+            t["label"],
+        ], className="theme-card-label"),
+    ], id={"type": "theme-card", "idx": tid}, className="theme-card", n_clicks=0,
+       **{"data-theme": tid})
+
+_SETTINGS_MODAL = dbc.Modal([
+    dbc.ModalHeader(dbc.ModalTitle([
+        html.I(className="bi bi-gear-fill me-2"),
+        "Settings",
+    ])),
+    dbc.ModalBody([
+        # ── Timezone ──────────────────────────
+        html.Div([
+            html.Label([html.I(className="bi bi-globe2 me-2"), "Timezone"],
+                       className="settings-label"),
+            dbc.Select(
+                id="settings-timezone",
+                options=[
+                    {"label": "(UTC-12:00) Baker Island", "value": "Etc/GMT+12"},
+                    {"label": "(UTC-11:00) Pago Pago", "value": "Pacific/Pago_Pago"},
+                    {"label": "(UTC-10:00) Honolulu", "value": "Pacific/Honolulu"},
+                    {"label": "(UTC-09:00) Anchorage", "value": "America/Anchorage"},
+                    {"label": "(UTC-08:00) Los Angeles", "value": "America/Los_Angeles"},
+                    {"label": "(UTC-07:00) Denver", "value": "America/Denver"},
+                    {"label": "(UTC-06:00) Chicago", "value": "America/Chicago"},
+                    {"label": "(UTC-05:00) New York", "value": "America/New_York"},
+                    {"label": "(UTC-04:00) Santiago", "value": "America/Santiago"},
+                    {"label": "(UTC-03:00) Sao Paulo", "value": "America/Sao_Paulo"},
+                    {"label": "(UTC-02:00) South Georgia", "value": "Atlantic/South_Georgia"},
+                    {"label": "(UTC-01:00) Azores", "value": "Atlantic/Azores"},
+                    {"label": "(UTC+00:00) London / UTC", "value": "Europe/London"},
+                    {"label": "(UTC+01:00) Berlin / Paris", "value": "Europe/Berlin"},
+                    {"label": "(UTC+02:00) Helsinki / Cairo", "value": "Europe/Helsinki"},
+                    {"label": "(UTC+03:00) Moscow / Istanbul", "value": "Europe/Moscow"},
+                    {"label": "(UTC+04:00) Dubai", "value": "Asia/Dubai"},
+                    {"label": "(UTC+05:00) Karachi", "value": "Asia/Karachi"},
+                    {"label": "(UTC+05:30) Mumbai", "value": "Asia/Kolkata"},
+                    {"label": "(UTC+06:00) Dhaka", "value": "Asia/Dhaka"},
+                    {"label": "(UTC+07:00) Bangkok", "value": "Asia/Bangkok"},
+                    {"label": "(UTC+08:00) Singapore / Shanghai", "value": "Asia/Singapore"},
+                    {"label": "(UTC+09:00) Tokyo / Seoul", "value": "Asia/Tokyo"},
+                    {"label": "(UTC+10:00) Sydney", "value": "Australia/Sydney"},
+                    {"label": "(UTC+11:00) Noumea", "value": "Pacific/Noumea"},
+                    {"label": "(UTC+12:00) Auckland", "value": "Pacific/Auckland"},
+                ],
+                value="Europe/Berlin",
+                className="settings-select",
+            ),
+        ], className="settings-group"),
+
+        # ── Language ──────────────────────────
+        html.Div([
+            html.Label([html.I(className="bi bi-translate me-2"), "Language"],
+                       className="settings-label"),
+            dbc.Select(
+                id="settings-language",
+                options=_LANGUAGES,
+                value="en",
+                className="settings-select",
+            ),
+        ], className="settings-group"),
+
+        # ── Theme ─────────────────────────────
+        html.Div([
+            html.Label([html.I(className="bi bi-palette-fill me-2"), "Theme"],
+                       className="settings-label"),
+
+            html.Div("Dark", className="theme-section-label"),
+            html.Div(
+                [_theme_card(tid, t) for tid, t in _THEMES.items() if t["dark"]],
+                className="theme-grid",
+            ),
+            html.Div("Light", className="theme-section-label mt-3"),
+            html.Div(
+                [_theme_card(tid, t) for tid, t in _THEMES.items() if not t["dark"]],
+                className="theme-grid",
+            ),
+        ], className="settings-group"),
+    ]),
+], id="settings-modal", is_open=False, centered=True, className="settings-modal")
+
 _DEPLOY_MODAL = dbc.Modal([
     dbc.ModalHeader(dbc.ModalTitle([
         html.I(className="bi bi-rocket-takeoff me-2"),
@@ -1054,6 +1214,13 @@ TOPBAR = dbc.Navbar(
                 html.Span(id="workspace-name-display", className="workspace-name"),
                 html.Span(id="host-display", className="host-display"),
             ], className="workspace-info ms-3"),
+            html.Button(
+                html.I(className="bi bi-gear-fill"),
+                id="settings-btn",
+                n_clicks=0,
+                className="settings-btn ms-3",
+                title="Settings",
+            ),
             html.Button(
                 html.Span(id="user-display"),
                 id="user-btn",
@@ -1233,6 +1400,7 @@ app.layout = html.Div([
     dcc.Store(id="chips-store", data=None),         # written by execute_api_call, read by sp-item callback
     dcc.Store(id="sp-dummy", data=None),            # dummy output for side-panel toggle clientside CB
     dcc.Store(id="curl-dummy", data=None),          # dummy output for curl copy clientside CB
+    dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
     dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
@@ -1247,6 +1415,8 @@ app.layout = html.Div([
     USER_DROPDOWN,  # fixed dropdown, outside normal flow
     _DEPLOY_MODAL,
     _ABOUT_MODAL,
+    _SETTINGS_MODAL,
+    dcc.Store(id="settings-store", data={"timezone": "Europe/Berlin", "language": "en", "theme": "midnight"}, storage_type="local"),
 
     html.Div([
         build_sidebar(),
@@ -1375,6 +1545,100 @@ def toggle_deploy_modal(n, is_open):
 def toggle_about_modal(n, is_open):
     """Callback 1c: Toggle the about modal."""
     return not is_open
+
+
+# 1d. Toggle settings modal and sync controls to saved values on open
+app.clientside_callback(
+    """
+    function(n, isOpen, settings) {
+        if (!n) return [dash_clientside.no_update, dash_clientside.no_update, dash_clientside.no_update];
+        var opening = !isOpen;
+        if (opening && settings) {
+            return [true, settings.timezone || "Europe/Berlin", settings.language || "en"];
+        }
+        return [!isOpen, dash_clientside.no_update, dash_clientside.no_update];
+    }
+    """,
+    Output("settings-modal", "is_open"),
+    Output("settings-timezone", "value"),
+    Output("settings-language", "value"),
+    Input("settings-btn", "n_clicks"),
+    State("settings-modal", "is_open"),
+    State("settings-store", "data"),
+    prevent_initial_call=True,
+)
+
+
+# 1e. Unified settings callback — theme card clicks update the store;
+#     store changes apply CSS variables.  Dropdowns are *not* outputs
+#     of the store callback, breaking the circular dependency.
+@app.callback(
+    Output("settings-store", "data"),
+    Input("settings-timezone", "value"),
+    Input("settings-language", "value"),
+    Input({"type": "theme-card", "idx": ALL}, "n_clicks"),
+    State("settings-store", "data"),
+    prevent_initial_call=True,
+)
+def update_settings(tz, lang, theme_clicks, current):
+    """Callback 1e: Update settings store when any setting changes."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update
+    tid = ctx.triggered[0]["prop_id"]
+    settings = dict(current) if current else {"timezone": "Europe/Berlin", "language": "en", "theme": "midnight"}
+    if "settings-timezone" in tid:
+        settings["timezone"] = tz
+    elif "settings-language" in tid:
+        settings["language"] = lang
+    elif "theme-card" in tid:
+        import json as _json
+        parsed = _json.loads(tid.rsplit(".", 1)[0])
+        settings["theme"] = parsed["idx"]
+    return settings
+
+
+# 1f. Apply theme CSS variables whenever the settings store changes (clientside).
+#     Does NOT write back to timezone/language dropdowns — those are already
+#     in sync because the user just changed them (or they're set via initial value).
+app.clientside_callback(
+    """
+    function(settings) {
+        if (!settings) return window.dash_clientside.no_update;
+
+        var themes = """ + json.dumps({k: {kk: vv for kk, vv in v.items() if kk not in ("label", "icon", "dark")} for k, v in _THEMES.items()}) + """;
+        var theme = themes[settings.theme || "midnight"] || themes["midnight"];
+        var root = document.documentElement;
+        root.style.setProperty('--bg-void', theme['bg-void']);
+        root.style.setProperty('--bg-dark', theme['bg-dark']);
+        root.style.setProperty('--bg-panel', theme['bg-panel']);
+        root.style.setProperty('--bg-card', theme['bg-card']);
+        root.style.setProperty('--bg-hover', theme['bg-hover']);
+        root.style.setProperty('--bg-active', theme['bg-active']);
+        root.style.setProperty('--border', theme['border']);
+        root.style.setProperty('--border-hi', theme['border-hi']);
+        root.style.setProperty('--text-hi', theme['text-hi']);
+        root.style.setProperty('--text-1', theme['text-1']);
+        root.style.setProperty('--text-2', theme['text-2']);
+        root.style.setProperty('--text-3', theme['text-3']);
+        root.style.setProperty('--cyan', theme['accent']);
+        root.style.setProperty('--glow-cyan', '0 0 18px ' + theme['accent'] + '48');
+        root.style.setProperty('--card-bg', theme['card-bg']);
+
+        // Highlight the active theme card
+        document.querySelectorAll('.theme-card').forEach(function(card) {
+            card.classList.remove('theme-card-active');
+            if (card.getAttribute('data-theme') === (settings.theme || 'midnight')) {
+                card.classList.add('theme-card-active');
+            }
+        });
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("settings-theme-dummy", "data"),
+    Input("settings-store", "data"),
+)
 
 
 # 2. Toggle dropdown open/close — clientside for instant reactivity

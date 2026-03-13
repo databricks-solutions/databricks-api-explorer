@@ -1265,6 +1265,123 @@ body {
   opacity: 0;
 }
 
+/* ── Settings Button ─────────────────────────────────────────────── */
+.settings-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 15px;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+.settings-btn:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+/* ── Settings Modal ──────────────────────────────────────────────── */
+.settings-modal .modal-content {
+  background: var(--card-bg, #1a1d23);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-1, #e4e6eb);
+}
+.settings-modal .modal-header {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.settings-modal .btn-close { filter: invert(1) grayscale(1) brightness(0.7); }
+
+.settings-group {
+  margin-bottom: 20px;
+}
+.settings-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+.settings-select {
+  background: rgba(0,0,0,0.25) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-1) !important;
+  font-size: 13px;
+  border-radius: var(--r-sm);
+}
+.settings-select:focus {
+  border-color: var(--cyan) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.15) !important;
+}
+.settings-select option {
+  background: #1a1d23;
+  color: var(--text-1);
+}
+
+.theme-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+.theme-card {
+  background: rgba(0,0,0,0.2);
+  border: 2px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.theme-card:hover {
+  border-color: var(--text-2);
+  transform: translateY(-1px);
+}
+.theme-card-active {
+  border-color: var(--cyan) !important;
+  box-shadow: 0 0 12px rgba(0,212,255,0.25);
+}
+.theme-swatch {
+  position: relative;
+  height: 40px;
+  overflow: hidden;
+}
+.theme-swatch-bg {
+  position: absolute;
+  inset: 0;
+}
+.theme-swatch-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+}
+.theme-card-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 /* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */
 /* The PlotlyCloud button is the only .dash-debug-menu__button without an id */
 .dash-debug-menu__button:not([id]),
