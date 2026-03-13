@@ -417,6 +417,22 @@ def make_api_call(
             timeout=timeout,
         )
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+        # Detect HTML login/sign-in pages returned instead of JSON —
+        # this happens when the token is invalid, expired, or the host
+        # requires browser-based authentication.
+        content_type = response.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            return {
+                "status_code": 401,
+                "elapsed_ms": elapsed_ms,
+                "data": {"error": "Authentication failed — the server returned a sign-in page instead of JSON. "
+                         "Check that your token is valid and has not expired."},
+                "success": False,
+                "error": "Authentication required",
+                "url": url,
+            }
+
         try:
             data = response.json()
         except Exception:

@@ -90,6 +90,91 @@ app.index_string = '''<!DOCTYPE html>
 _DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
 
 
+# ── Flask route: serve ~/.databrickscfg in the browser ────────────────────────
+@server.route("/open-databrickscfg")
+def _serve_databrickscfg():
+    """Serve ``~/.databrickscfg`` as a syntax-highlighted HTML page."""
+    import html as _html
+    cfg_path = os.path.expanduser("~/.databrickscfg")
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        content = "# File not found: ~/.databrickscfg"
+    escaped = _html.escape(content)
+    highlighted = _highlight_ini(escaped)
+    page = (
+        "<!DOCTYPE html><html><head><title>~/.databrickscfg</title>"
+        "<style>"
+        "body{background:#0d1117;color:#c9d1d9;font-family:'JetBrains Mono',monospace;"
+        "padding:24px;margin:0;font-size:13px;line-height:1.6}"
+        "pre{white-space:pre-wrap;word-break:break-all;margin:0}"
+        ".comment{color:#6a737d}.section{color:#79c0ff;font-weight:600}"
+        ".key{color:#d2a8ff}.val{color:#a5d6ff}"
+        ".toolbar{display:flex;align-items:center;justify-content:space-between;"
+        "margin-bottom:16px}"
+        "h1{font-size:16px;color:#58a6ff;margin:0;font-weight:500}"
+        ".edit-btn{background:rgba(88,166,255,0.12);color:#58a6ff;border:1px solid "
+        "rgba(88,166,255,0.3);border-radius:6px;padding:6px 14px;font-size:12px;"
+        "font-family:inherit;cursor:pointer;text-decoration:none;display:inline-flex;"
+        "align-items:center;gap:6px;transition:all 0.15s}"
+        ".edit-btn:hover{background:rgba(88,166,255,0.22);border-color:#58a6ff;"
+        "color:#79c0ff}"
+        ".edit-btn svg{width:14px;height:14px;fill:currentColor}"
+        "</style></head><body>"
+        '<div class="toolbar">'
+        "<h1>~/.databrickscfg</h1>"
+        '<a class="edit-btn" href="/open-databrickscfg-editor" target="_self">'
+        '<svg viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 00-.707 0L10.5 1.793 '
+        "14.207 5.5l1.647-1.646a.5.5 0 000-.708l-3-3zM13.5 6.207L9.793 2.5 "
+        "3.622 8.671a.5.5 0 00-.121.196l-1.47 4.413a.5.5 0 00.633.633l4.413-1.47"
+        'a.5.5 0 00.196-.121L13.5 6.207z"/></svg>'
+        "Open in editor</a>"
+        "</div>"
+        "<pre>" + highlighted + "</pre>"
+        "</body></html>"
+    )
+    from flask import Response
+    return Response(page, status=200, content_type="text/html")
+
+
+@server.route("/open-databrickscfg-editor")
+def _open_in_editor():
+    """Open ``~/.databrickscfg`` in the user's default text editor."""
+    import platform
+    import subprocess as _sp
+    cfg_path = os.path.expanduser("~/.databrickscfg")
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            _sp.Popen(["open", cfg_path])
+        elif system == "Windows":
+            os.startfile(cfg_path)
+        else:
+            _sp.Popen(["xdg-open", cfg_path])
+    except Exception:
+        pass
+    from flask import redirect
+    return redirect("/open-databrickscfg")
+
+
+def _highlight_ini(text: str) -> str:
+    """Add syntax highlighting spans to escaped INI content."""
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        if stripped.startswith("#") or stripped.startswith(";"):
+            lines.append(f'<span class="comment">{line}</span>')
+        elif stripped.startswith("["):
+            lines.append(f'<span class="section">{line}</span>')
+        elif "=" in line:
+            key, _, val = line.partition("=")
+            lines.append(f'<span class="key">{key}</span>=<span class="val">{val}</span>')
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 # ── JSON Syntax Highlighter ───────────────────────────────────────────────────
 # ── Pagination helpers ────────────────────────────────────────────────────────
 _SKIP_LIST_KEYS = frozenset({"schemas"})
@@ -1104,6 +1189,29 @@ _DEPLOY_MODAL = dbc.Modal([
         "Deploy API Explorer",
     ])),
     dbc.ModalBody([
+        html.H6([html.I(className="bi bi-terminal me-2"), "Install Databricks CLI"], className="deploy-section-title"),
+        html.P("The Databricks CLI is required for profile-based authentication and deployment:", className="text-muted small mb-2"),
+
+        html.Div([html.Span("macOS", className="deploy-option-label"), " (Homebrew)"], className="deploy-option-title"),
+        html.Pre("brew tap databricks/tap\nbrew install databricks", className="deploy-code"),
+
+        html.Div([html.Span("Linux / WSL", className="deploy-option-label"), " (curl)"], className="deploy-option-title"),
+        html.Pre('curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh', className="deploy-code"),
+
+        html.Div([html.Span("Windows", className="deploy-option-label"), " (winget)"], className="deploy-option-title"),
+        html.Pre("winget install Databricks.DatabricksCLI", className="deploy-code"),
+
+        html.P([
+            "Verify installation: ",
+            html.Code("databricks --version"),
+            ". See ",
+            html.A("docs.databricks.com/dev-tools/cli", href="https://docs.databricks.com/dev-tools/cli/index.html",
+                    target="_blank", rel="noopener noreferrer", className="about-link"),
+            " for details.",
+        ], className="text-muted small mb-4"),
+
+        html.Hr(className="divider"),
+
         html.H6([html.I(className="bi bi-laptop me-2"), "Local Development"], className="deploy-section-title"),
         html.P("Run the app locally with Databricks CLI authentication:", className="text-muted small mb-2"),
         html.Pre(
@@ -1250,12 +1358,22 @@ def _profile_section() -> html.Div:
     # Options are populated dynamically via toggle_dropdown callback on each open
     return html.Div([
         html.Label("Profile", className="conn-label"),
-        dbc.Select(
-            id="profile-select",
-            options=[],
-            value="",
-            className="conn-select",
-        ),
+        html.Div([
+            dbc.Select(
+                id="profile-select",
+                options=[],
+                value="",
+                className="conn-select",
+            ),
+            html.A(
+                html.I(className="bi bi-pencil-square"),
+                id="open-databrickscfg-btn",
+                href="/open-databrickscfg",
+                target="_blank",
+                className="open-cfg-btn",
+                title="Open ~/.databrickscfg",
+            ),
+        ], className="profile-select-row"),
         html.Div(id="profile-auth-type", className="conn-hint mt-1"),
         html.Button(
             [html.I(className="bi bi-arrow-repeat me-2"), "Re-authenticate with SSO"],
@@ -1901,7 +2019,13 @@ def apply_connection(n_clicks, mode, profile, sso_host, custom_host, custom_toke
         # Quick validation
         r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
         if not r["success"]:
-            return no_update, html.Span(f"Connection failed: {r['status_code']} {r.get('error','')}", className="text-danger"), no_update
+            if r["status_code"] == 401:
+                msg = "Authentication failed — check that the token is valid and not expired."
+            elif r["status_code"] == 0:
+                msg = f"Could not reach {host} — check the workspace URL."
+            else:
+                msg = f"Connection failed: {r['status_code']} {r.get('error', '')}"
+            return no_update, html.Span([html.I(className="bi bi-x-circle-fill me-1"), msg], className="text-danger"), no_update
         return {"mode": "custom", "host": host, "token": token}, html.Span([html.I(className="bi bi-check-circle-fill me-1 text-success"), f"Connected to {host.replace('https://','')}"]), no_update
 
 
