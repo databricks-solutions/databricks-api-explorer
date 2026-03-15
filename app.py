@@ -3187,7 +3187,11 @@ def update_curl_display(last_req, conn_config):
     from urllib.parse import urlencode
     if not last_req:
         return "", {"display": "none"}
-    host, token = _resolve_conn(conn_config)
+    ws_host, ws_token = _resolve_conn(conn_config)
+    if last_req.get("is_account") and ws_host:
+        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+    else:
+        host, token = ws_host, ws_token
     method = last_req.get("method", "GET")
     base_url = last_req.get("url", "")
     query_params = last_req.get("query_params") or {}
