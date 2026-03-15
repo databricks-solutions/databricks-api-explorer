@@ -10,6 +10,7 @@
   --bg-dark:    #080c18;
   --bg-panel:   #0d1225;
   --bg-surface: #141a2e;
+  --bg-topbar:  rgba(8,12,24,0.95);
   --bg-card:    rgba(255,255,255,0.028);
   --bg-hover:   rgba(255,255,255,0.055);
   --bg-active:  rgba(0,212,255,0.09);
@@ -58,7 +59,7 @@ body {
 /* ── Top Navigation Bar ───────────────────────────────────────────── */
 .topbar {
   height: 56px;
-  background: rgba(8,12,24,0.95) !important;
+  background: var(--bg-topbar) !important;
   border-bottom: 1px solid var(--border) !important;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -872,25 +873,23 @@ body {
   border-color: rgba(239,68,68,0.6);
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
-.load-all-abort-btn {
-  position: absolute;
-  right: 18px;
-  top: 6px;
-  z-index: 10;
+.load-all-abort-btn { display: none; }
+.load-all-abort-inline {
   background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.3);
   color: var(--red);
   border-radius: var(--r-sm);
-  padding: 2px 10px;
+  padding: 1px 8px;
   font-size: 11px;
   font-family: var(--font-mono);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
+  margin-left: 12px;
   transition: all 0.15s;
 }
-.load-all-abort-btn:hover {
+.load-all-abort-inline:hover {
   background: rgba(239,68,68,0.22);
   border-color: rgba(239,68,68,0.6);
 }
@@ -1132,14 +1131,14 @@ body {
   top: 56px;
   right: 0;
   width: 520px;
-  background: #0a0f20;
+  background: var(--bg-panel);
   border-left: 1px solid rgba(0,212,255,0.18);
   border-bottom: 1px solid rgba(0,212,255,0.18);
   border-radius: 0 0 0 var(--r-lg);
   z-index: 9999;
   max-height: calc(100vh - 56px);
   overflow-y: auto;
-  box-shadow: -10px 10px 40px rgba(0,0,0,0.7);
+  box-shadow: -10px 10px 40px rgba(0,0,0,0.35);
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
@@ -1187,7 +1186,7 @@ body {
   margin-bottom: 4px;
 }
 .conn-select, .conn-input {
-  background: rgba(255,255,255,0.04) !important;
+  background: var(--bg-card) !important;
   border: 1px solid var(--border) !important;
   color: var(--text-1) !important;
   font-size: 12px !important;
@@ -1198,7 +1197,7 @@ body {
   border-color: var(--border-hi) !important;
   box-shadow: 0 0 0 2px rgba(0,212,255,0.1) !important;
 }
-.conn-select option { background: #0d1225; }
+.conn-select option { background: var(--bg-panel); }
 .conn-hint { font-size: 11px; color: var(--text-3); }
 
 /* Apply / Connect button */

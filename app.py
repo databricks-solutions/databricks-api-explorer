@@ -1053,7 +1053,7 @@ _MODE_BADGE = html.Button(
 _THEMES = {
     "midnight": {"label": "Midnight", "dark": True, "icon": "bi-moon-stars-fill",
                  "bg-void": "#050810", "bg-dark": "#080c18", "bg-panel": "#0d1225",
-                 "bg-surface": "#141a2e",
+                 "bg-surface": "#141a2e", "bg-topbar": "rgba(8,12,24,0.95)",
                  "bg-card": "rgba(255,255,255,0.028)", "bg-hover": "rgba(255,255,255,0.055)",
                  "bg-active": "rgba(0,212,255,0.09)", "border": "rgba(255,255,255,0.07)",
                  "border-hi": "rgba(0,212,255,0.45)", "text-hi": "#f8fafc",
@@ -1061,7 +1061,7 @@ _THEMES = {
                  "accent": "#00d4ff", "card-bg": "#1a1d23"},
     "obsidian": {"label": "Obsidian", "dark": True, "icon": "bi-gem",
                  "bg-void": "#0a0a0a", "bg-dark": "#111111", "bg-panel": "#181818",
-                 "bg-surface": "#222222",
+                 "bg-surface": "#222222", "bg-topbar": "rgba(10,10,10,0.95)",
                  "bg-card": "rgba(255,255,255,0.035)", "bg-hover": "rgba(255,255,255,0.06)",
                  "bg-active": "rgba(168,85,247,0.1)", "border": "rgba(255,255,255,0.08)",
                  "border-hi": "rgba(168,85,247,0.5)", "text-hi": "#fafafa",
@@ -1069,7 +1069,7 @@ _THEMES = {
                  "accent": "#a855f7", "card-bg": "#1e1e1e"},
     "deep-ocean": {"label": "Deep Ocean", "dark": True, "icon": "bi-water",
                    "bg-void": "#020617", "bg-dark": "#0f172a", "bg-panel": "#1e293b",
-                   "bg-surface": "#263448",
+                   "bg-surface": "#263448", "bg-topbar": "rgba(2,6,23,0.95)",
                    "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.05)",
                    "bg-active": "rgba(56,189,248,0.1)", "border": "rgba(255,255,255,0.06)",
                    "border-hi": "rgba(56,189,248,0.5)", "text-hi": "#f8fafc",
@@ -1077,7 +1077,7 @@ _THEMES = {
                    "accent": "#38bdf8", "card-bg": "#1e293b"},
     "aurora": {"label": "Aurora", "dark": True, "icon": "bi-stars",
                "bg-void": "#030712", "bg-dark": "#0c1427", "bg-panel": "#162032",
-               "bg-surface": "#1e2a3e",
+               "bg-surface": "#1e2a3e", "bg-topbar": "rgba(3,7,18,0.95)",
                "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.055)",
                "bg-active": "rgba(16,185,129,0.1)", "border": "rgba(255,255,255,0.07)",
                "border-hi": "rgba(16,185,129,0.5)", "text-hi": "#ecfdf5",
@@ -1085,7 +1085,7 @@ _THEMES = {
                "accent": "#10b981", "card-bg": "#1a2332"},
     "snowlight": {"label": "Snowlight", "dark": False, "icon": "bi-sun-fill",
                   "bg-void": "#f8fafc", "bg-dark": "#f1f5f9", "bg-panel": "#ffffff",
-                  "bg-surface": "#eef2f7",
+                  "bg-surface": "#eef2f7", "bg-topbar": "rgba(255,255,255,0.92)",
                   "bg-card": "rgba(0,0,0,0.03)", "bg-hover": "rgba(0,0,0,0.05)",
                   "bg-active": "rgba(99,102,241,0.08)", "border": "rgba(0,0,0,0.1)",
                   "border-hi": "rgba(99,102,241,0.5)", "text-hi": "#0f172a",
@@ -1093,7 +1093,7 @@ _THEMES = {
                   "accent": "#6366f1", "card-bg": "#ffffff"},
     "paper": {"label": "Paper", "dark": False, "icon": "bi-file-earmark-text",
               "bg-void": "#fafaf9", "bg-dark": "#f5f5f4", "bg-panel": "#ffffff",
-              "bg-surface": "#edeceb",
+              "bg-surface": "#edeceb", "bg-topbar": "rgba(255,255,255,0.92)",
               "bg-card": "rgba(0,0,0,0.025)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(234,88,12,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(234,88,12,0.45)", "text-hi": "#1c1917",
@@ -1101,7 +1101,7 @@ _THEMES = {
               "accent": "#ea580c", "card-bg": "#ffffff"},
     "cloud": {"label": "Cloud", "dark": False, "icon": "bi-cloud-sun-fill",
               "bg-void": "#f0f9ff", "bg-dark": "#e0f2fe", "bg-panel": "#ffffff",
-              "bg-surface": "#daeaf8",
+              "bg-surface": "#daeaf8", "bg-topbar": "rgba(255,255,255,0.92)",
               "bg-card": "rgba(0,0,0,0.02)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(14,165,233,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(14,165,233,0.45)", "text-hi": "#0c4a6e",
@@ -1405,7 +1405,7 @@ TOPBAR = dbc.Navbar(
             ),
         ], className="d-flex align-items-center"),
     ], fluid=True),
-    color="dark", dark=True, className="topbar",
+    dark=True, className="topbar",
 )
 
 
@@ -1621,12 +1621,8 @@ app.layout = html.Div([
                     style={"display": "none"},
                 ),
                 html.Button(
-                    [html.I(className="bi bi-x-lg me-1"), "Abort"],
-                    id="load-all-abort-btn",
-                    n_clicks=0,
+                    "Abort", id="load-all-abort-btn", n_clicks=0,
                     className="load-all-abort-btn",
-                    title="Cancel loading",
-                    style={"display": "none"},
                 ),
             ], className="response-panel"),
         ], className="main-content"),
@@ -1814,6 +1810,7 @@ app.clientside_callback(
         root.style.setProperty('--bg-dark', theme['bg-dark']);
         root.style.setProperty('--bg-panel', theme['bg-panel']);
         root.style.setProperty('--bg-surface', theme['bg-surface']);
+        root.style.setProperty('--bg-topbar', theme['bg-topbar']);
         root.style.setProperty('--bg-card', theme['bg-card']);
         root.style.setProperty('--bg-hover', theme['bg-hover']);
         root.style.setProperty('--bg-active', theme['bg-active']);
@@ -2370,6 +2367,7 @@ def restore_cached_response(endpoint, cache):
     Output("chips-store", "data"),
     Output("response-cache", "data", allow_duplicate=True),
     Output("sp-load-all-btn", "style"),
+    Output("fetch-status-bar", "children", allow_duplicate=True),
     Input("execute-btn", "n_clicks"),
     State("selected-endpoint", "data"),
     State({"type": "param-input", "name": ALL}, "value"),
@@ -2383,7 +2381,7 @@ def restore_cached_response(endpoint, cache):
 def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, timeout_val, conn_config, cache):
     """Callback 10: Execute the selected API call and render the response."""
     if not n_clicks or not endpoint:
-        return no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     params: Dict[str, Any] = {}
     ep_param_map = {p["name"]: p for p in endpoint.get("params", [])}
@@ -2403,7 +2401,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
         if not val:
-            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update, {"display": "none"}
+            return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update, {"display": "none"}, ""
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -2412,11 +2410,11 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
-            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update, {"display": "none"}
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update, time.time(), None, no_update, {"display": "none"}, ""
 
     ws_host, ws_token = _resolve_conn(conn_config)
     if not ws_host:
-        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}
+        return build_error_panel("No workspace host. Configure a connection in the user menu."), no_update, time.time(), None, no_update, {"display": "none"}, ""
 
     # Account-scope endpoints need a token issued for the accounts console
     is_account = endpoint.get("scope") == "account"
@@ -2427,7 +2425,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
 
     if not token:
         msg = "No auth token for the accounts console. Ensure your CLI profile has an account_id configured." if is_account else "No auth token. Configure a connection in the user menu."
-        return build_error_panel(msg), no_update, time.time(), None, no_update, {"display": "none"}
+        return build_error_panel(msg), no_update, time.time(), None, no_update, {"display": "none"}, ""
 
     try:
         ep_timeout = max(1, int(timeout_val or endpoint.get("timeout", 30)))
@@ -2464,7 +2462,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
     new_cache = dict(cache or {})
     new_cache[ep_id] = {"result": result, "chips": chips or None}
     btn_style = {"display": "inline-flex"} if has_more else {"display": "none"}
-    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache, btn_style
+    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache, btn_style, ""
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -2787,7 +2785,6 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
     Output("load-all-ticker", "disabled"),
     Output("fetch-status-bar", "children", allow_duplicate=True),
     Output("sp-load-all-btn", "style", allow_duplicate=True),
-    Output("load-all-abort-btn", "style"),
     Input("sp-load-all-btn", "n_clicks"),
     State("last-request", "data"),
     State("conn-config", "data"),
@@ -2795,7 +2792,7 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
 )
 def start_load_all(n_clicks, last_req, conn_config):
     """Callback 11h-start: Launch the background Load All thread and enable the ticker."""
-    NO = (True, no_update, no_update, no_update)
+    NO = (True, no_update, no_update)
     if not n_clicks or not last_req:
         return NO
     initial_data = last_req.get("initial_data", {})
@@ -2830,9 +2827,12 @@ def start_load_all(n_clicks, last_req, conn_config):
     status = html.Div([
         html.I(className="bi bi-arrow-repeat me-2 spin-icon"),
         "Loading page 1…",
+        html.Button([html.I(className="bi bi-x-lg me-1"), "Abort"],
+                    id="load-all-abort-btn", n_clicks=0,
+                    className="load-all-abort-inline"),
     ], className="fetch-status-inner loading")
 
-    return False, status, {"display": "none"}, {"display": "inline-flex"}
+    return False, status, {"display": "none"}
 
 
 # 11h-tick: Poll progress from background thread
@@ -2842,34 +2842,35 @@ def start_load_all(n_clicks, last_req, conn_config):
     Output("chips-store", "data", allow_duplicate=True),
     Output("fetch-status-bar", "children", allow_duplicate=True),
     Output("load-all-ticker", "disabled", allow_duplicate=True),
-    Output("load-all-abort-btn", "style", allow_duplicate=True),
     Input("load-all-ticker", "n_intervals"),
     State("response-cache", "data"),
     prevent_initial_call=True,
 )
 def poll_load_all(n_intervals, cache):
     """Callback 11h-tick: Poll the background Load All thread for progress."""
-    NO = (no_update, no_update, no_update, no_update, no_update, no_update)
+    NO = (no_update, no_update, no_update, no_update, no_update)
     state = _load_all_state
     pages = state.get("pages", 0)
     total = state.get("total_items", 0)
     elapsed = state.get("elapsed_ms", 0)
-    HIDE = {"display": "none"}
 
     if state.get("running"):
         # Still loading — update status bar only
         status = html.Div([
             html.I(className="bi bi-arrow-repeat me-2 spin-icon"),
             f"Loading page {pages + 1}… ({total:,} items so far · {elapsed:,}ms)",
+            html.Button([html.I(className="bi bi-x-lg me-1"), "Abort"],
+                        id="load-all-abort-btn", n_clicks=0,
+                        className="load-all-abort-inline"),
         ], className="fetch-status-inner loading")
-        return no_update, no_update, no_update, status, False, no_update
+        return no_update, no_update, no_update, status, False
 
-    # Auto-dismiss: if finished_at was set, wait 5s then clear status bar
+    # Auto-dismiss: if finished_at was set, wait 10s then clear status bar
     finished_at = state.get("finished_at")
     if finished_at and not state.get("done"):
-        if time.time() - finished_at >= 5:
+        if time.time() - finished_at >= 10:
             state.pop("finished_at", None)
-            return no_update, no_update, no_update, "", True, HIDE  # clear status, stop ticker
+            return no_update, no_update, no_update, "", True  # clear status, stop ticker
         return NO  # keep ticking, waiting to dismiss
 
     if not state.get("done"):
@@ -2915,33 +2916,31 @@ def poll_load_all(n_intervals, cache):
     # Mark done, set dismiss timer — keep ticker running for auto-dismiss
     _load_all_state.update({"done": False, "items": [], "finished_at": time.time()})
 
-    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False, HIDE
+    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False
 
 
 # 11h-abort: Stop background Load All thread
 @app.callback(
     Output("fetch-status-bar", "children", allow_duplicate=True),
-    Output("load-all-abort-btn", "style", allow_duplicate=True),
     Input("load-all-abort-btn", "n_clicks"),
     prevent_initial_call=True,
 )
 def abort_load_all(n_clicks):
     """Callback 11h-abort: Signal the background Load All thread to stop."""
     if not n_clicks:
-        return no_update, no_update
+        return no_update
     _load_all_state["running"] = False
     _load_all_state["error"] = "Cancelled"
     return html.Div([
         html.I(className="bi bi-x-circle-fill me-2"),
         "Aborting…",
-    ], className="fetch-status-inner cancelled"), {"display": "none"}
+    ], className="fetch-status-inner cancelled")
 
 
 # 11h-abort-on-switch: Cancel Load All when a different endpoint is selected
 @app.callback(
     Output("load-all-ticker", "disabled", allow_duplicate=True),
     Output("fetch-status-bar", "children", allow_duplicate=True),
-    Output("load-all-abort-btn", "style", allow_duplicate=True),
     Input("selected-endpoint", "data"),
     prevent_initial_call=True,
 )
@@ -2952,7 +2951,7 @@ def abort_load_all_on_switch(endpoint):
         _load_all_state["error"] = "Cancelled"
     # Also clear any lingering dismiss timer
     _load_all_state.pop("finished_at", None)
-    return True, "", {"display": "none"}
+    return True, ""
 
 
 # 13. Search filter
