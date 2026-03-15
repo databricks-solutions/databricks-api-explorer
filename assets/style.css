@@ -9,6 +9,7 @@
   --bg-void:    #050810;
   --bg-dark:    #080c18;
   --bg-panel:   #0d1225;
+  --bg-surface: #141a2e;
   --bg-card:    rgba(255,255,255,0.028);
   --bg-hover:   rgba(255,255,255,0.055);
   --bg-active:  rgba(0,212,255,0.09);
@@ -516,20 +517,20 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
-  background: rgba(0,0,0,0.3);
+  background: var(--bg-panel);
 }
 .curl-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 5px 10px 5px 12px;
-  background: rgba(255,255,255,0.03);
+  background: var(--bg-hover);
   border-bottom: 1px solid var(--border);
 }
 .curl-label {
   font-size: 11px;
   font-family: var(--font-mono);
-  color: var(--text-3);
+  color: var(--text-2);
   letter-spacing: 0.04em;
 }
 .curl-copy-btn {
@@ -552,7 +553,7 @@ body {
   padding: 10px 14px;
   font-size: 11.5px;
   line-height: 1.7;
-  color: #94a3b8;
+  color: var(--text-1);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -569,7 +570,7 @@ body {
 .response-meta {
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
-  background: rgba(0,0,0,0.25);
+  background: var(--bg-surface);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -673,7 +674,7 @@ body {
   width: 220px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
-  background: rgba(0,0,0,0.2);
+  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1201,6 +1202,12 @@ body {
 .conn-hint { font-size: 11px; color: var(--text-3); }
 
 /* Apply / Connect button */
+.conn-btn-row {
+  display: flex;
+  gap: 8px;
+}
+.conn-btn-row .reauth-btn,
+.conn-btn-row .apply-btn { flex: 1; justify-content: center; }
 .apply-btn {
   background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.08));
   border: 1px solid rgba(0,212,255,0.3);
@@ -1213,8 +1220,6 @@ body {
   transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
-  width: 100%;
-  justify-content: center;
 }
 .apply-btn:hover {
   background: rgba(0,212,255,0.18);
@@ -1296,9 +1301,9 @@ body {
   border: 1px solid rgba(168,85,247,0.35);
   color: #c084fc;
   border-radius: var(--r-md);
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
   display: inline-flex;
@@ -1409,7 +1414,7 @@ body {
 }
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 10px;
 }
 .theme-card {
@@ -1425,35 +1430,85 @@ body {
 }
 .theme-card:hover {
   border-color: var(--text-2);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 .theme-card-active {
   border-color: var(--cyan) !important;
-  box-shadow: 0 0 12px rgba(0,212,255,0.25);
+  box-shadow: 0 0 14px rgba(0,212,255,0.3);
 }
-.theme-swatch {
-  position: relative;
-  height: 40px;
-  overflow: hidden;
-}
-.theme-swatch-bg {
-  position: absolute;
-  inset: 0;
-}
-.theme-swatch-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-}
+.theme-card-active .theme-card-label { color: var(--cyan); }
 .theme-card-label {
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-2);
   padding: 6px 8px;
   text-align: center;
   white-space: nowrap;
+  transition: color 0.15s;
+}
+
+/* ── Mini UI mockup inside theme cards ──────────────────────────── */
+.tm-preview {
+  border-radius: 4px;
+  margin: 6px 6px 0;
+  overflow: hidden;
+  height: 72px;
+  display: flex;
+  flex-direction: column;
+}
+.tm-topbar {
+  display: flex;
+  align-items: center;
+  padding: 3px 5px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tm-logo { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.tm-topbar-spacer { flex: 1; }
+.tm-avatar { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.tm-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.tm-sidebar {
+  width: 26px;
+  flex-shrink: 0;
+  padding: 4px 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tm-nav-item {
+  height: 3px;
+  border-radius: 1px;
+}
+.tm-content {
+  flex: 1;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.tm-line {
+  height: 2px;
+  border-radius: 1px;
+  width: 80%;
+}
+.tm-line-title { width: 55%; height: 3px; }
+.tm-line-short { width: 45%; }
+.tm-btn {
+  width: 24px;
+  height: 5px;
+  border-radius: 2px;
+  margin-top: 1px;
+}
+.tm-code-block {
+  flex: 1;
+  border-radius: 2px;
+  min-height: 8px;
 }
 
 /* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */

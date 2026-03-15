@@ -230,55 +230,62 @@ def _find_list_key(data: dict) -> Optional[str]:
 # ── JSON Tree Viewer ──────────────────────────────────────────────────────────
 _TREE_CSS = (
     "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');"
-    "html{margin:0;padding:0;background:#050810;height:100%;overflow:hidden;}"
-    "body{margin:0;padding:0;background:#050810;height:100%;overflow:auto;}"
+    ":root{"
+    "--t-bg:#050810;--t-text:#94a3b8;--t-text-hi:#e2e8f0;--t-muted:#475569;"
+    "--t-border:rgba(255,255,255,.07);--t-accent:#00d4ff;"
+    "--t-key:#60a5fa;--t-str:#86efac;--t-num:#fbbf24;--t-bool:#c084fc;--t-null:#94a3b8;"
+    "--t-punc:#64748b;--t-btn-bg:rgba(0,212,255,.07);--t-btn-border:rgba(0,212,255,.2);"
+    "--t-input-bg:rgba(255,255,255,.06);--t-input-border:rgba(255,255,255,.12);"
+    "--t-scroll:rgba(255,255,255,.12);--t-tip-bg:#1e293b;--t-mark:#7c3aed;--t-mark-cur:#f59e0b;"
+    "}"
+    "html{margin:0;padding:0;background:var(--t-bg);height:100%;overflow:hidden;}"
+    "body{margin:0;padding:0;background:var(--t-bg);height:100%;overflow:auto;}"
     "body{font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace;"
-    "font-size:12px;line-height:1.7;color:#94a3b8;}"
-    "#toolbar{position:sticky;top:0;background:#050810;border-bottom:1px solid rgba(255,255,255,.07);"
+    "font-size:12px;line-height:1.7;color:var(--t-text);}"
+    "#toolbar{position:sticky;top:0;background:var(--t-bg);border-bottom:1px solid var(--t-border);"
     "padding:5px 14px;display:flex;align-items:center;gap:6px;z-index:10;}"
-    "#depth-label{color:#475569;font-size:11px;font-style:italic;flex:1;}"
-    ".depth-btn{background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:#00d4ff;"
+    "#depth-label{color:var(--t-muted);font-size:11px;font-style:italic;flex:1;}"
+    ".depth-btn{background:var(--t-btn-bg);border:1px solid var(--t-btn-border);color:var(--t-accent);"
     "border-radius:4px;width:22px;height:22px;font-size:15px;line-height:1;cursor:pointer;"
     "display:inline-flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;}"
-    ".depth-btn:hover{background:rgba(0,212,255,.18);border-color:rgba(0,212,255,.45);}"
+    ".depth-btn:hover{opacity:.85;}"
     ".depth-btn:disabled{opacity:.3;cursor:default;}"
     "#root{padding:10px 14px;}"
     ".tree-node{display:block;}"
     ".node-header{display:block;}"
     ".toggle{display:inline-block;width:14px;text-align:center;cursor:pointer;"
-    "user-select:none;color:#475569;transition:color .1s;}"
-    ".toggle:hover{color:#00d4ff;}"
-    ".preview{color:#475569;font-style:italic;}"
+    "user-select:none;color:var(--t-muted);transition:color .1s;}"
+    ".toggle:hover{color:var(--t-accent);}"
+    ".preview{color:var(--t-muted);font-style:italic;}"
     ".tree-node:not(.collapsed)>.node-header>.preview{display:none;}"
     ".children{margin-left:20px;display:block;}"
     ".close-line{display:block;}"
     ".tree-node.collapsed>.children,.tree-node.collapsed>.close-line{display:none;}"
     ".kv,.item{display:block;}"
-    ".jk{color:#60a5fa}.jv{color:#86efac}.jn{color:#fbbf24}"
-    ".jb{color:#c084fc}.jbn{color:#94a3b8}.jp{color:#64748b}"
+    ".jk{color:var(--t-key)}.jv{color:var(--t-str)}.jn{color:var(--t-num)}"
+    ".jb{color:var(--t-bool)}.jbn{color:var(--t-null)}.jp{color:var(--t-punc)}"
     ".id-link{cursor:pointer;border-bottom:1px dashed currentColor;}"
-    ".id-link:hover{color:#00d4ff!important;border-bottom-color:#00d4ff;"
-    "text-shadow:0 0 6px rgba(0,212,255,.5);}"
-    ".jts{position:relative;cursor:default;border-bottom:1px dotted #fbbf24;}"
+    ".id-link:hover{color:var(--t-accent)!important;border-bottom-color:var(--t-accent);}"
+    ".jts{position:relative;cursor:default;border-bottom:1px dotted var(--t-num);}"
     ".jts:hover .ts-tip{visibility:visible;opacity:1;}"
     ".ts-tip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 4px);left:50%;"
-    "transform:translateX(-50%);background:#1e293b;color:#e2e8f0;font-size:11px;"
+    "transform:translateX(-50%);background:var(--t-tip-bg);color:var(--t-text-hi);font-size:11px;"
     "padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;"
-    "border:1px solid rgba(0,212,255,.25);z-index:100;"
+    "border:1px solid var(--t-btn-border);z-index:100;"
     "transition:opacity .15s;}"
     "::-webkit-scrollbar{width:6px;height:6px}"
-    "::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}"
+    "::-webkit-scrollbar-thumb{background:var(--t-scroll);border-radius:3px}"
     "::-webkit-scrollbar-track{background:transparent}"
-    "*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}"
-    "#search-box{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);"
-    "color:#e2e8f0;border-radius:4px;padding:2px 8px;font-family:inherit;font-size:11px;"
+    "*{scrollbar-width:thin;scrollbar-color:var(--t-scroll) transparent}"
+    "#search-box{flex:1;background:var(--t-input-bg);border:1px solid var(--t-input-border);"
+    "color:var(--t-text-hi);border-radius:4px;padding:2px 8px;font-family:inherit;font-size:11px;"
     "outline:none;min-width:80px;}"
-    "#search-box:focus{border-color:rgba(0,212,255,.4);background:rgba(0,212,255,.05);}"
-    "#search-box::placeholder{color:#475569;}"
-    "#sc{color:#94a3b8;font-size:11px;white-space:nowrap;flex-shrink:0;min-width:44px;text-align:center;}"
-    "mark.sh{background:#7c3aed;color:#fff;border-radius:2px;padding:0 1px;}"
-    "mark.sh.cur{background:#f59e0b;color:#050810;}"
-    ".sep{width:1px;height:16px;background:rgba(255,255,255,.12);flex-shrink:0;}"
+    "#search-box:focus{border-color:var(--t-btn-border);}"
+    "#search-box::placeholder{color:var(--t-muted);}"
+    "#sc{color:var(--t-text);font-size:11px;white-space:nowrap;flex-shrink:0;min-width:44px;text-align:center;}"
+    "mark.sh{background:var(--t-mark);color:#fff;border-radius:2px;padding:0 1px;}"
+    "mark.sh.cur{background:var(--t-mark-cur);color:#050810;}"
+    ".sep{width:1px;height:16px;background:var(--t-scroll);flex-shrink:0;}"
 )
 
 # Raw string — no Python escape processing; JS unicode escapes work as-is in browser.
@@ -1027,6 +1034,7 @@ _MODE_BADGE = html.Button(
 _THEMES = {
     "midnight": {"label": "Midnight", "dark": True, "icon": "bi-moon-stars-fill",
                  "bg-void": "#050810", "bg-dark": "#080c18", "bg-panel": "#0d1225",
+                 "bg-surface": "#141a2e",
                  "bg-card": "rgba(255,255,255,0.028)", "bg-hover": "rgba(255,255,255,0.055)",
                  "bg-active": "rgba(0,212,255,0.09)", "border": "rgba(255,255,255,0.07)",
                  "border-hi": "rgba(0,212,255,0.45)", "text-hi": "#f8fafc",
@@ -1034,6 +1042,7 @@ _THEMES = {
                  "accent": "#00d4ff", "card-bg": "#1a1d23"},
     "obsidian": {"label": "Obsidian", "dark": True, "icon": "bi-gem",
                  "bg-void": "#0a0a0a", "bg-dark": "#111111", "bg-panel": "#181818",
+                 "bg-surface": "#222222",
                  "bg-card": "rgba(255,255,255,0.035)", "bg-hover": "rgba(255,255,255,0.06)",
                  "bg-active": "rgba(168,85,247,0.1)", "border": "rgba(255,255,255,0.08)",
                  "border-hi": "rgba(168,85,247,0.5)", "text-hi": "#fafafa",
@@ -1041,6 +1050,7 @@ _THEMES = {
                  "accent": "#a855f7", "card-bg": "#1e1e1e"},
     "deep-ocean": {"label": "Deep Ocean", "dark": True, "icon": "bi-water",
                    "bg-void": "#020617", "bg-dark": "#0f172a", "bg-panel": "#1e293b",
+                   "bg-surface": "#263448",
                    "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.05)",
                    "bg-active": "rgba(56,189,248,0.1)", "border": "rgba(255,255,255,0.06)",
                    "border-hi": "rgba(56,189,248,0.5)", "text-hi": "#f8fafc",
@@ -1048,6 +1058,7 @@ _THEMES = {
                    "accent": "#38bdf8", "card-bg": "#1e293b"},
     "aurora": {"label": "Aurora", "dark": True, "icon": "bi-stars",
                "bg-void": "#030712", "bg-dark": "#0c1427", "bg-panel": "#162032",
+               "bg-surface": "#1e2a3e",
                "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.055)",
                "bg-active": "rgba(16,185,129,0.1)", "border": "rgba(255,255,255,0.07)",
                "border-hi": "rgba(16,185,129,0.5)", "text-hi": "#ecfdf5",
@@ -1055,6 +1066,7 @@ _THEMES = {
                "accent": "#10b981", "card-bg": "#1a2332"},
     "snowlight": {"label": "Snowlight", "dark": False, "icon": "bi-sun-fill",
                   "bg-void": "#f8fafc", "bg-dark": "#f1f5f9", "bg-panel": "#ffffff",
+                  "bg-surface": "#eef2f7",
                   "bg-card": "rgba(0,0,0,0.03)", "bg-hover": "rgba(0,0,0,0.05)",
                   "bg-active": "rgba(99,102,241,0.08)", "border": "rgba(0,0,0,0.1)",
                   "border-hi": "rgba(99,102,241,0.5)", "text-hi": "#0f172a",
@@ -1062,6 +1074,7 @@ _THEMES = {
                   "accent": "#6366f1", "card-bg": "#ffffff"},
     "paper": {"label": "Paper", "dark": False, "icon": "bi-file-earmark-text",
               "bg-void": "#fafaf9", "bg-dark": "#f5f5f4", "bg-panel": "#ffffff",
+              "bg-surface": "#edeceb",
               "bg-card": "rgba(0,0,0,0.025)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(234,88,12,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(234,88,12,0.45)", "text-hi": "#1c1917",
@@ -1069,6 +1082,7 @@ _THEMES = {
               "accent": "#ea580c", "card-bg": "#ffffff"},
     "cloud": {"label": "Cloud", "dark": False, "icon": "bi-cloud-sun-fill",
               "bg-void": "#f0f9ff", "bg-dark": "#e0f2fe", "bg-panel": "#ffffff",
+              "bg-surface": "#daeaf8",
               "bg-card": "rgba(0,0,0,0.02)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(14,165,233,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(14,165,233,0.45)", "text-hi": "#0c4a6e",
@@ -1094,12 +1108,42 @@ _dark_themes = [t for t in _THEMES.values() if t["dark"]]
 _light_themes = [t for t in _THEMES.values() if not t["dark"]]
 
 def _theme_card(tid: str, t: dict) -> html.Div:
-    """Build a clickable theme preview card."""
+    """Build a clickable theme preview card with a mini UI mockup."""
+    bg = t["bg-void"]
+    panel = t["bg-panel"]
+    accent = t["accent"]
+    text1 = t["text-1"]
+    text3 = t["text-3"]
+    border = t["border"]
     return html.Button([
+        # Mini UI preview
         html.Div([
-            html.Div(className="theme-swatch-bar", style={"background": t["accent"]}),
-            html.Div(className="theme-swatch-bg", style={"background": t["bg-void"]}),
-        ], className="theme-swatch"),
+            # Topbar
+            html.Div([
+                html.Div(className="tm-logo", style={"background": accent}),
+                html.Div(className="tm-topbar-spacer"),
+                html.Div(className="tm-avatar", style={"background": text3}),
+            ], className="tm-topbar", style={"background": panel, "borderBottom": f"1px solid {border}"}),
+            # Body
+            html.Div([
+                # Sidebar
+                html.Div([
+                    html.Div(className="tm-nav-item", style={"background": accent, "opacity": "0.7"}),
+                    html.Div(className="tm-nav-item", style={"background": text3, "opacity": "0.4"}),
+                    html.Div(className="tm-nav-item", style={"background": text3, "opacity": "0.4"}),
+                    html.Div(className="tm-nav-item", style={"background": text3, "opacity": "0.3"}),
+                ], className="tm-sidebar", style={"background": panel, "borderRight": f"1px solid {border}"}),
+                # Content
+                html.Div([
+                    html.Div(className="tm-line tm-line-title", style={"background": text1, "opacity": "0.6"}),
+                    html.Div(className="tm-line", style={"background": text3, "opacity": "0.3"}),
+                    html.Div(className="tm-line tm-line-short", style={"background": text3, "opacity": "0.2"}),
+                    html.Div(className="tm-btn", style={"background": accent, "opacity": "0.5"}),
+                    html.Div(className="tm-code-block", style={"background": panel, "border": f"1px solid {border}"}),
+                ], className="tm-content"),
+            ], className="tm-body"),
+        ], className="tm-preview", style={"background": bg}),
+        # Label
         html.Div([
             html.I(className=f"bi {t['icon']} me-1"),
             t["label"],
@@ -1375,12 +1419,6 @@ def _profile_section() -> html.Div:
             ),
         ], className="profile-select-row"),
         html.Div(id="profile-auth-type", className="conn-hint mt-1"),
-        html.Button(
-            [html.I(className="bi bi-arrow-repeat me-2"), "Re-authenticate with SSO"],
-            id="reauth-btn",
-            n_clicks=0,
-            className="reauth-btn mt-2",
-        ),
         html.Div(id="reauth-status", className="mt-2 small"),
     ], id="profile-section")
 
@@ -1453,12 +1491,20 @@ USER_DROPDOWN = html.Div([
         _profile_section(),
         _sso_section(),
         _custom_section(),
-        html.Button(
-            [html.I(className="bi bi-plug-fill me-2"), "Connect"],
-            id="apply-conn-btn",
-            n_clicks=0,
-            className="apply-btn mt-3",
-        ),
+        html.Div([
+            html.Button(
+                [html.I(className="bi bi-arrow-repeat me-2"), "Re-auth SSO"],
+                id="reauth-btn",
+                n_clicks=0,
+                className="reauth-btn",
+            ),
+            html.Button(
+                [html.I(className="bi bi-plug-fill me-2"), "Connect"],
+                id="apply-conn-btn",
+                n_clicks=0,
+                className="apply-btn",
+            ),
+        ], className="conn-btn-row mt-3"),
         html.Div(id="conn-status", className="mt-2 small"),
     ], className="px-4 pb-3"),
 
@@ -1741,12 +1787,14 @@ app.clientside_callback(
     function(settings) {
         if (!settings) return window.dash_clientside.no_update;
 
-        var themes = """ + json.dumps({k: {kk: vv for kk, vv in v.items() if kk not in ("label", "icon", "dark")} for k, v in _THEMES.items()}) + """;
+        var themes = """ + json.dumps({k: {kk: vv for kk, vv in v.items() if kk not in ("label", "icon")} for k, v in _THEMES.items()}) + """;
         var theme = themes[settings.theme || "midnight"] || themes["midnight"];
+        var isDark = theme["dark"];
         var root = document.documentElement;
         root.style.setProperty('--bg-void', theme['bg-void']);
         root.style.setProperty('--bg-dark', theme['bg-dark']);
         root.style.setProperty('--bg-panel', theme['bg-panel']);
+        root.style.setProperty('--bg-surface', theme['bg-surface']);
         root.style.setProperty('--bg-card', theme['bg-card']);
         root.style.setProperty('--bg-hover', theme['bg-hover']);
         root.style.setProperty('--bg-active', theme['bg-active']);
@@ -1767,6 +1815,68 @@ app.clientside_callback(
                 card.classList.add('theme-card-active');
             }
         });
+
+        // Push theme into JSON tree iframes
+        var iframeVars = isDark ? {
+            '--t-bg': theme['bg-void'], '--t-text': theme['text-2'], '--t-text-hi': theme['text-1'],
+            '--t-muted': theme['text-3'], '--t-border': theme['border'], '--t-accent': theme['accent'],
+            '--t-key': '#60a5fa', '--t-str': '#86efac', '--t-num': '#fbbf24',
+            '--t-bool': '#c084fc', '--t-null': theme['text-2'], '--t-punc': theme['text-3'],
+            '--t-btn-bg': 'rgba(0,212,255,.07)', '--t-btn-border': 'rgba(0,212,255,.2)',
+            '--t-input-bg': 'rgba(255,255,255,.06)', '--t-input-border': 'rgba(255,255,255,.12)',
+            '--t-scroll': 'rgba(255,255,255,.12)', '--t-tip-bg': theme['bg-panel'],
+            '--t-mark': '#7c3aed', '--t-mark-cur': '#f59e0b'
+        } : {
+            '--t-bg': theme['bg-void'], '--t-text': '#374151', '--t-text-hi': '#111827',
+            '--t-muted': '#9ca3af', '--t-border': theme['border'], '--t-accent': theme['accent'],
+            '--t-key': '#2563eb', '--t-str': '#059669', '--t-num': '#d97706',
+            '--t-bool': '#7c3aed', '--t-null': '#9ca3af', '--t-punc': '#6b7280',
+            '--t-btn-bg': 'rgba(99,102,241,.08)', '--t-btn-border': 'rgba(99,102,241,.25)',
+            '--t-input-bg': 'rgba(0,0,0,.04)', '--t-input-border': 'rgba(0,0,0,.12)',
+            '--t-scroll': 'rgba(0,0,0,.15)', '--t-tip-bg': '#ffffff',
+            '--t-mark': '#7c3aed', '--t-mark-cur': '#f59e0b'
+        };
+        // Store current iframe vars globally so new iframes can pick them up
+        window.__iframeThemeVars = iframeVars;
+
+        // Apply to all existing iframes
+        function applyIframeTheme(iframe) {
+            try {
+                var iDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                if (iDoc && iDoc.documentElement) {
+                    var r = iDoc.documentElement;
+                    var vars = window.__iframeThemeVars;
+                    if (vars) { for (var k in vars) { r.style.setProperty(k, vars[k]); } }
+                }
+            } catch(e) {}
+        }
+        document.querySelectorAll('iframe').forEach(function(iframe) {
+            applyIframeTheme(iframe);
+            // Also apply when iframe finishes loading (for newly created ones)
+            iframe.addEventListener('load', function() { applyIframeTheme(iframe); });
+        });
+
+        // Watch for new iframes added to the DOM and theme them automatically
+        if (!window.__iframeThemeObserver) {
+            window.__iframeThemeObserver = new MutationObserver(function(mutations) {
+                for (var i = 0; i < mutations.length; i++) {
+                    var nodes = mutations[i].addedNodes;
+                    for (var j = 0; j < nodes.length; j++) {
+                        var nd = nodes[j];
+                        if (nd.tagName === 'IFRAME') {
+                            nd.addEventListener('load', function() { applyIframeTheme(nd); });
+                            applyIframeTheme(nd);
+                        } else if (nd.querySelectorAll) {
+                            nd.querySelectorAll('iframe').forEach(function(f) {
+                                f.addEventListener('load', function() { applyIframeTheme(f); });
+                                applyIframeTheme(f);
+                            });
+                        }
+                    }
+                }
+            });
+            window.__iframeThemeObserver.observe(document.body, { childList: true, subtree: true });
+        }
 
         return window.dash_clientside.no_update;
     }
