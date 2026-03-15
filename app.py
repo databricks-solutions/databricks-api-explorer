@@ -194,6 +194,26 @@ _load_all_state: Dict[str, Any] = {
 }
 
 
+def _detect_has_more(data: Any) -> bool:
+    """Check whether a paginated response has more pages to fetch.
+
+    Handles two pagination styles:
+    * ``has_more`` flag (standard Databricks APIs).
+    * SCIM-style ``totalResults`` / ``startIndex`` / ``itemsPerPage``.
+    """
+    if not isinstance(data, dict):
+        return False
+    if data.get("has_more"):
+        return True
+    # SCIM pagination: totalResults, startIndex, itemsPerPage
+    total = data.get("totalResults")
+    start = data.get("startIndex")
+    per_page = data.get("itemsPerPage")
+    if isinstance(total, int) and isinstance(start, int) and isinstance(per_page, int):
+        return (start + per_page - 1) < total
+    return False
+
+
 def _detect_next_page_token(data: Any) -> Optional[str]:
     """Extract a ``next_page_token`` from a paginated API response.
 
@@ -759,10 +779,9 @@ def build_response_panel(
     if isinstance(data, list):
         item_count = f" · {len(data)} items"
     elif isinstance(data, dict):
-        for v in data.values():
-            if isinstance(v, list):
-                item_count = f" · {len(v)} items"
-                break
+        list_key = _find_list_key(data)
+        if list_key:
+            item_count = f" · {len(data[list_key])} items"
 
     # CSV response: render as a scrollable HTML table
     csv_text = result.get("_csv")
@@ -2428,7 +2447,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
 
     chips = extract_chips(endpoint.get("id", ""), result["data"]) if result["success"] else []
     resp_data = result["data"] if isinstance(result["data"], dict) else {}
-    has_more = bool(resp_data.get("has_more"))
+    has_more = _detect_has_more(resp_data)
     last_req = {
         "path": path,
         "method": method,
@@ -2439,6 +2458,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
         "elapsed_ms": result["elapsed_ms"],
         "status_code": result["status_code"],
         "url": result.get("url", ""),
+        "is_account": is_account,
     }
     ep_id = endpoint.get("id", "")
     new_cache = dict(cache or {})
@@ -2461,8 +2481,8 @@ def start_pagination(last_req):
     if not last_req:
         return {}, True
     initial_data = last_req.get("initial_data", {})
-    # Skip auto-pagination when has_more is present — "Load All" handles those
-    if isinstance(initial_data, dict) and initial_data.get("has_more"):
+    # Skip auto-pagination when has_more is detected — "Load All" handles those
+    if isinstance(initial_data, dict) and _detect_has_more(initial_data):
         return {"run_id": time.time()}, True
     next_token = _detect_next_page_token(initial_data)
     list_key = _find_list_key(initial_data) if next_token else None
@@ -2704,6 +2724,10 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
     offset = len(items)
     next_token = _detect_next_page_token(initial_data)
     use_token = next_token is not None
+    # Detect SCIM-style pagination (startIndex / count / totalResults)
+    is_scim = "totalResults" in initial_data and "startIndex" in initial_data
+    scim_total = int(initial_data.get("totalResults", 0)) if is_scim else 0
+    scim_start = int(initial_data.get("startIndex", 1)) + int(initial_data.get("itemsPerPage", limit))
     total_elapsed = last_req.get("elapsed_ms", 0)
     pages = 1
 
@@ -2716,6 +2740,9 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
         qp = dict(last_req.get("query_params") or {})
         if use_token and next_token:
             qp["page_token"] = next_token
+        elif is_scim:
+            qp["startIndex"] = str(scim_start)
+            qp["count"] = str(limit)
         else:
             qp["offset"] = str(offset)
             qp["limit"] = str(limit)
@@ -2731,9 +2758,12 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
 
         page_data = r["data"]
         new_page_items = page_data.get(list_key, [])
+        if not new_page_items:
+            break
         items.extend(new_page_items)
         pages += 1
         offset += limit
+        scim_start += len(new_page_items)
         next_token = _detect_next_page_token(page_data)
 
         state["items"] = items
@@ -2741,7 +2771,11 @@ def _load_all_worker(last_req, host, token, list_key, initial_data):
         state["total_items"] = len(items)
         state["elapsed_ms"] = total_elapsed
 
-        if not page_data.get("has_more"):
+        # Determine whether more pages remain
+        if is_scim:
+            if len(items) >= scim_total:
+                break
+        elif not _detect_has_more(page_data):
             break
 
     state["running"] = False
@@ -2765,13 +2799,18 @@ def start_load_all(n_clicks, last_req, conn_config):
     if not n_clicks or not last_req:
         return NO
     initial_data = last_req.get("initial_data", {})
-    if not isinstance(initial_data, dict) or not initial_data.get("has_more"):
+    if not isinstance(initial_data, dict) or not _detect_has_more(initial_data):
         return NO
     list_key = _find_list_key(initial_data)
     if not list_key:
         return NO
 
-    host, token = _resolve_conn(conn_config)
+    # Resolve host/token — account-scope APIs need the accounts console credentials
+    ws_host, ws_token = _resolve_conn(conn_config)
+    if last_req.get("is_account") and ws_host:
+        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+    else:
+        host, token = ws_host, ws_token
     if not token or not host:
         return NO
 
@@ -2856,6 +2895,10 @@ def poll_load_all(n_intervals, cache):
     merged_data = {**initial_data, list_key: items}
     merged_data.pop("has_more", None)
     merged_data.pop("next_page_token", None)
+    # Clean up SCIM pagination fields in merged result
+    merged_data.pop("totalResults", None)
+    merged_data.pop("startIndex", None)
+    merged_data.pop("itemsPerPage", None)
     merged_result = {
         "status_code": last_req.get("status_code", 200),
         "elapsed_ms": elapsed,

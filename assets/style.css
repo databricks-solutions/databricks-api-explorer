@@ -733,7 +733,7 @@ body {
 .sp-load-all-btn {
   position: absolute;
   top: 8px;
-  left: 220px;
+  left: 232px;
   z-index: 5;
   background: rgba(0,212,255,0.1);
   border: 1px solid rgba(0,212,255,0.25);
