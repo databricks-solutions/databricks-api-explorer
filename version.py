@@ -32,4 +32,4 @@ def _next_version() -> int:
 
 
 BUILD: int = _next_version()
-VERSION: str = f"v0.1.{BUILD}"
+VERSION: str = f"v0.2.{BUILD}"

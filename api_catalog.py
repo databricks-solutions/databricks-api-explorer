@@ -662,7 +662,9 @@ LIST_TO_GET: Dict[str, Any] = {
     "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     "name"),
     "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name"),
     "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
-    "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name"),
+    "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name", None, [
+                                      ("pipelines-events", "bi-journal-text", "List Pipeline Events", {"pipeline_id": "pipeline_id"}),
+                                  ]),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
