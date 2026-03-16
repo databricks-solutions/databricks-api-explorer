@@ -117,23 +117,28 @@ echo ""
 databricks bundle run "$APP_NAME" --profile "$profile"
 
 # ── Get app metadata ─────────────────────────────────────────────────
-app_json=$(databricks apps get "$DEPLOYED_APP_NAME" --profile "$profile" -o json 2>/dev/null || echo "{}")
+echo ""
+echo "  Fetching app metadata..."
+app_json=$(databricks apps get "$DEPLOYED_APP_NAME" --profile "$profile" -o json 2>&1) || { echo "  Warning: Could not fetch app metadata."; app_json="{}"; }
 integration_id=$(echo "$app_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('oauth2_app_integration_id',''))" 2>/dev/null)
 sp_id=$(echo "$app_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_principal_id',''))" 2>/dev/null)
+sp_name=$(echo "$app_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_principal_name',''))" 2>/dev/null)
+echo "  App integration ID: ${integration_id:-not found}"
+echo "  Service Principal:  ${sp_name:-unknown} (ID: ${sp_id:-not found})"
+
+# ── Get auth token + workspace host for API calls ────────────────────
+_token=$(databricks auth token --profile "$profile" 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+_ws_host=$(python3 -c "
+from databricks.sdk.core import Config
+c = Config(profile='${profile}')
+print((c.host or '').rstrip('/'))
+" 2>/dev/null)
 
 # ── Upload app thumbnail ─────────────────────────────────────────────
 if [[ -f "$SCREENSHOT" ]]; then
   echo ""
   echo "  Uploading app thumbnail..."
-  _token=$(databricks auth token --profile "$profile" 2>/dev/null \
-    | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
-  _ws_host=$(echo "$app_json" | python3 -c "import sys,json; d=json.load(sys.stdin); u=d.get('url',''); print(u.split('.')[0].replace('https://','').rsplit('-',1)[0] if u else '')" 2>/dev/null)
-  # Derive workspace host from the profile
-  _ws_host=$(python3 -c "
-from databricks.sdk.core import Config
-c = Config(profile='${profile}')
-print((c.host or '').rstrip('/'))
-" 2>/dev/null)
   if [[ -n "$_token" && -n "$_ws_host" ]]; then
     _b64=$(base64 -i "$SCREENSHOT")
     _resp=$(curl -s -X POST "${_ws_host}/api/2.0/apps/${DEPLOYED_APP_NAME}/thumbnail" \
@@ -144,6 +149,9 @@ print((c.host or '').rstrip('/'))
   else
     echo "  Warning: Could not upload thumbnail (missing token or host)."
   fi
+else
+  echo ""
+  echo "  Skipping thumbnail upload (${SCREENSHOT} not found)."
 fi
 
 # ── Configure OBO scopes (requires an account-level profile) ──────────
@@ -173,7 +181,7 @@ else
     echo "  OBO scopes not configured. Add them in the Databricks Apps UI → Configure → Add scope."
   else
     echo "  Using account profile: ${account_profile}"
-    echo "  Integration ID: ${integration_id}"
+    echo "  Updating integration ${integration_id} with all-apis scope..."
 
     redirect_urls=$(databricks account custom-app-integration get "$integration_id" \
       --profile "$account_profile" -o json 2>/dev/null \
@@ -182,40 +190,67 @@ else
     databricks account custom-app-integration update "$integration_id" \
       --profile "$account_profile" \
       --json "{\"scopes\": ${OBO_SCOPES}, \"redirect_urls\": ${redirect_urls:-"[]"}}" 2>/dev/null \
-      && echo "  OBO scopes configured successfully: all-apis enabled." \
+      && echo "  OBO scopes configured successfully." \
       || echo "  Warning: Could not update OBO scopes. Configure them manually in the Databricks Apps UI."
   fi
 fi
 
 # ── Add Service Principal to admins group ─────────────────────────────
-if [[ -n "$sp_id" ]]; then
-  # Check if the SP is already in the admins group
-  admins_json=$(databricks groups get admins --profile "$profile" -o json 2>/dev/null || echo "{}")
-  sp_in_admins=$(echo "$admins_json" | python3 -c "
+echo ""
+echo "  Checking Service Principal admin group membership..."
+
+if [[ -z "$sp_id" ]]; then
+  echo "  Warning: No Service Principal ID found — skipping admins group check."
+elif [[ -z "$_token" || -z "$_ws_host" ]]; then
+  echo "  Warning: No auth token or host — skipping admins group check."
+else
+  # Use SCIM API to find the admins group and check membership
+  admins_scim=$(curl -s "${_ws_host}/api/2.0/preview/scim/v2/Groups?filter=displayName+eq+%22admins%22" \
+    -H "Authorization: Bearer ${_token}" 2>&1)
+
+  admins_group_id=$(echo "$admins_scim" | python3 -c "
 import sys, json
-data = json.load(sys.stdin)
-members = data.get('members', [])
+d = json.load(sys.stdin)
+groups = d.get('Resources', [])
+print(groups[0]['id'] if groups else '')
+" 2>/dev/null)
+
+  if [[ -z "$admins_group_id" ]]; then
+    echo "  Warning: Could not find admins group via SCIM API."
+  else
+    sp_in_admins=$(echo "$admins_scim" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+members = d.get('Resources', [{}])[0].get('members', [])
 sp_id = '${sp_id}'
 print('yes' if any(str(m.get('value')) == sp_id for m in members) else 'no')
 " 2>/dev/null)
 
-  if [[ "$sp_in_admins" == "yes" ]]; then
-    echo ""
-    echo "  App Service Principal (ID: ${sp_id}) is already in the admins group."
-  else
-    echo ""
-    echo "  The app's Service Principal (ID: ${sp_id}) is NOT in the admins group."
-    echo "  Adding it to admins allows the SP to access all workspace objects."
-    printf "  Add Service Principal to admins group? [y/N] "
-    read -r add_to_admins
-
-    if [[ "$add_to_admins" =~ ^[Yy]$ ]]; then
-      databricks groups patch admins --profile "$profile" \
-        --json "{\"Operations\": [{\"op\": \"add\", \"value\": {\"members\": [{\"value\": \"${sp_id}\"}]}}], \"schemas\": [\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"]}" 2>/dev/null \
-        && echo "  Service Principal added to admins group." \
-        || echo "  Warning: Could not add SP to admins group. Add it manually via Settings → Identity and access → Groups → admins."
+    if [[ "$sp_in_admins" == "yes" ]]; then
+      echo "  ${sp_name} (ID: ${sp_id}) is already in the admins group."
     else
-      echo "  Skipped. The SP may not be able to access all workspace objects."
+      echo "  ${sp_name} (ID: ${sp_id}) is NOT in the admins group."
+      echo "  Adding it to admins allows the SP to access all workspace objects."
+      printf "  Add Service Principal to admins group? [y/N] "
+      read -r add_to_admins
+
+      if [[ "$add_to_admins" =~ ^[Yy]$ ]]; then
+        echo "  Adding SP to admins group (SCIM group ID: ${admins_group_id})..."
+        _patch_resp=$(curl -s -X PATCH "${_ws_host}/api/2.0/preview/scim/v2/Groups/${admins_group_id}" \
+          -H "Authorization: Bearer ${_token}" \
+          -H "Content-Type: application/scim+json" \
+          -d "{\"Operations\": [{\"op\": \"add\", \"path\": \"members\", \"value\": [{\"value\": \"${sp_id}\"}]}], \"schemas\": [\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"]}" 2>&1)
+        # Check for error
+        _err=$(echo "$_patch_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('detail',''))" 2>/dev/null)
+        if [[ -z "$_err" ]]; then
+          echo "  Service Principal added to admins group."
+        else
+          echo "  Warning: Could not add SP to admins group: ${_err}"
+          echo "  Add it manually via Settings → Identity and access → Groups → admins."
+        fi
+      else
+        echo "  Skipped. The SP may not be able to access all workspace objects."
+      fi
     fi
   fi
 fi

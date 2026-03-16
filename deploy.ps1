@@ -112,40 +112,57 @@ Write-Host ""
 databricks bundle run $AppName --profile $profile
 
 # Get app metadata
+Write-Host ""
+Write-Host "  Fetching app metadata..."
 $appData = $null
 $integrationId = $null
 $spId = $null
+$spName = $null
 try {
     $appData = databricks apps get $DeployedAppName --profile $profile -o json 2>$null | ConvertFrom-Json
     $integrationId = $appData.oauth2_app_integration_id
     $spId = $appData.service_principal_id
+    $spName = $appData.service_principal_name
+} catch {
+    Write-Host "  Warning: Could not fetch app metadata." -ForegroundColor Yellow
+}
+Write-Host "  App integration ID: $(if ($integrationId) { $integrationId } else { 'not found' })"
+Write-Host "  Service Principal:  $(if ($spName) { $spName } else { 'unknown' }) (ID: $(if ($spId) { $spId } else { 'not found' }))"
+
+# Get auth token + workspace host for API calls
+$token = $null
+$wsHost = $null
+try {
+    $tokenJson = databricks auth token --profile $profile 2>$null | ConvertFrom-Json
+    $token = $tokenJson.access_token
+    $wsHost = (python3 -c "
+from databricks.sdk.core import Config
+c = Config(profile='$profile')
+print((c.host or '').rstrip('/'))
+" 2>$null).Trim()
 } catch {}
 
 # Upload app thumbnail
 if (Test-Path $Screenshot) {
     Write-Host ""
     Write-Host "  Uploading app thumbnail..."
-    try {
-        $tokenJson = databricks auth token --profile $profile 2>$null | ConvertFrom-Json
-        $token = $tokenJson.access_token
-        $wsHost = (python3 -c "
-from databricks.sdk.core import Config
-c = Config(profile='$profile')
-print((c.host or '').rstrip('/'))
-" 2>$null).Trim()
-        if ($token -and $wsHost) {
+    if ($token -and $wsHost) {
+        try {
             $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($Screenshot))
             $body = "{`"encoded_thumbnail`": `"$b64`"}"
             Invoke-RestMethod -Uri "$wsHost/api/2.0/apps/$DeployedAppName/thumbnail" `
                 -Method Post -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" } `
                 -Body $body 2>$null | Out-Null
             Write-Host "  Thumbnail uploaded." -ForegroundColor Green
-        } else {
-            Write-Host "  Warning: Could not upload thumbnail (missing token or host)." -ForegroundColor Yellow
+        } catch {
+            Write-Host "  Warning: Could not upload thumbnail." -ForegroundColor Yellow
         }
-    } catch {
-        Write-Host "  Warning: Could not upload thumbnail." -ForegroundColor Yellow
+    } else {
+        Write-Host "  Warning: Could not upload thumbnail (missing token or host)." -ForegroundColor Yellow
     }
+} else {
+    Write-Host ""
+    Write-Host "  Skipping thumbnail upload ($Screenshot not found)."
 }
 
 # Configure OBO scopes (requires an account-level profile)
@@ -179,7 +196,7 @@ else {
     }
     else {
         Write-Host "  Using account profile: $accountProfile"
-        Write-Host "  Integration ID: $integrationId"
+        Write-Host "  Updating integration $integrationId with all-apis scope..."
 
         try {
             $integJson = databricks account custom-app-integration get $integrationId --profile $accountProfile -o json 2>$null | ConvertFrom-Json
@@ -191,7 +208,7 @@ else {
         $updateJson = "{`"scopes`": $OboScopes, `"redirect_urls`": $redirectUrls}"
         try {
             databricks account custom-app-integration update $integrationId --profile $accountProfile --json $updateJson 2>$null
-            Write-Host "  OBO scopes configured successfully: all-apis enabled." -ForegroundColor Green
+            Write-Host "  OBO scopes configured successfully." -ForegroundColor Green
         } catch {
             Write-Host "  Warning: Could not update OBO scopes. Configure them manually in the Databricks Apps UI." -ForegroundColor Yellow
         }
@@ -199,27 +216,46 @@ else {
 }
 
 # Add Service Principal to admins group
-if ($spId) {
-    $spInAdmins = $false
-    try {
-        $adminsJson = databricks groups get admins --profile $profile -o json 2>$null | ConvertFrom-Json
-        $spInAdmins = ($adminsJson.members | Where-Object { $_.value -eq "$spId" }).Count -gt 0
-    } catch {}
+Write-Host ""
+Write-Host "  Checking Service Principal admin group membership..."
 
-    if ($spInAdmins) {
-        Write-Host ""
-        Write-Host "  App Service Principal (ID: $spId) is already in the admins group."
+if (-not $spId) {
+    Write-Host "  Warning: No Service Principal ID found - skipping admins group check." -ForegroundColor Yellow
+}
+elseif (-not $token -or -not $wsHost) {
+    Write-Host "  Warning: No auth token or host - skipping admins group check." -ForegroundColor Yellow
+}
+else {
+    # Use SCIM API to find admins group and check membership
+    try {
+        $adminsScim = Invoke-RestMethod -Uri "$wsHost/api/2.0/preview/scim/v2/Groups?filter=displayName+eq+%22admins%22" `
+            -Headers @{ Authorization = "Bearer $token" } 2>$null
+        $adminsGroup = $adminsScim.Resources | Select-Object -First 1
+        $adminsGroupId = $adminsGroup.id
+        $spInAdmins = ($adminsGroup.members | Where-Object { "$($_.value)" -eq "$spId" }).Count -gt 0
+    } catch {
+        $adminsGroupId = $null
+        $spInAdmins = $false
+    }
+
+    if (-not $adminsGroupId) {
+        Write-Host "  Warning: Could not find admins group via SCIM API." -ForegroundColor Yellow
+    }
+    elseif ($spInAdmins) {
+        Write-Host "  $spName (ID: $spId) is already in the admins group."
     }
     else {
-        Write-Host ""
-        Write-Host "  The app's Service Principal (ID: $spId) is NOT in the admins group."
+        Write-Host "  $spName (ID: $spId) is NOT in the admins group."
         Write-Host "  Adding it to admins allows the SP to access all workspace objects."
         $addToAdmins = Read-Host "  Add Service Principal to admins group? [y/N]"
 
         if ($addToAdmins -match '^[Yy]$') {
-            $patchJson = '{"Operations": [{"op": "add", "value": {"members": [{"value": "' + $spId + '"}]}}], "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]}'
+            Write-Host "  Adding SP to admins group (SCIM group ID: $adminsGroupId)..."
             try {
-                databricks groups patch admins --profile $profile --json $patchJson 2>$null
+                $patchBody = "{`"Operations`": [{`"op`": `"add`", `"path`": `"members`", `"value`": [{`"value`": `"$spId`"}]}], `"schemas`": [`"urn:ietf:params:scim:api:messages:2.0:PatchOp`"]}"
+                Invoke-RestMethod -Uri "$wsHost/api/2.0/preview/scim/v2/Groups/$adminsGroupId" `
+                    -Method Patch -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/scim+json" } `
+                    -Body $patchBody 2>$null | Out-Null
                 Write-Host "  Service Principal added to admins group." -ForegroundColor Green
             } catch {
                 Write-Host "  Warning: Could not add SP to admins group. Add it manually via Settings -> Identity and access -> Groups -> admins." -ForegroundColor Yellow
