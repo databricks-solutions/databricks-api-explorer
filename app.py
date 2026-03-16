@@ -1505,7 +1505,7 @@ USER_DROPDOWN = html.Div([
             id="conn-mode-radio",
             options=(
                 [
-                    {"label": "On-Behalf-of User", "value": "obo"},
+                    {"label": "On-Behalf-of User (Preview)", "value": "obo"},
                     {"label": "Service Principal", "value": "sp"},
                 ] if IS_DATABRICKS_APP else [
                     {"label": "CLI Profile", "value": "profile"},
