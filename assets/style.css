@@ -10,7 +10,7 @@
   --bg-dark:    #080c18;
   --bg-panel:   #0d1225;
   --bg-surface: #141a2e;
-  --bg-topbar:  rgba(8,12,24,0.95);
+  --bg-topbar:  #080c18;
   --bg-card:    rgba(255,255,255,0.028);
   --bg-hover:   rgba(255,255,255,0.055);
   --bg-active:  rgba(0,212,255,0.09);
@@ -46,8 +46,11 @@
 /* ── Reset & Base ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-body {
+html, body {
   background: var(--bg-void) !important;
+  background-color: var(--bg-void) !important;
+}
+body {
   font-family: var(--font-ui);
   color: var(--text-1) !important;
   overflow: hidden;
@@ -61,11 +64,12 @@ body {
   height: 56px;
   background: var(--bg-topbar) !important;
   border-bottom: 1px solid var(--border) !important;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   padding: 0 20px !important;
   flex-shrink: 0;
   z-index: 100;
+}
+.topbar.navbar {
+  background-color: var(--bg-topbar) !important;
 }
 
 .topbar .container-fluid {

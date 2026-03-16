@@ -51,6 +51,7 @@ from auth import (
     get_current_user_info,
     get_host,
     get_metastore_name,
+    get_sp_token,
     get_workspace_name,
     make_api_call,
     resolve_account_connection,
@@ -87,7 +88,7 @@ app.index_string = '''<!DOCTYPE html>
 </html>'''
 
 # Default connection config
-_DEFAULT_CONN = {"mode": "profile", "profile": DATABRICKS_PROFILE}
+_DEFAULT_CONN = {"mode": "sp"} if IS_DATABRICKS_APP else {"mode": "profile", "profile": DATABRICKS_PROFILE}
 
 
 # ── Flask route: serve ~/.databrickscfg in the browser ────────────────────────
@@ -724,7 +725,13 @@ def _resolve_conn(
         A ``(host, token)`` tuple.
     """
     if IS_DATABRICKS_APP:
-        return get_host(), flask_request.headers.get("x-forwarded-access-token")
+        mode = (conn_config or {}).get("mode", "sp")
+        if mode == "obo":
+            # OBO: read the user's token from the proxy header (requires
+            # User Authorization enabled + scopes configured in the app)
+            return get_host(), flask_request.headers.get("X-Forwarded-Access-Token")
+        # Default: Service Principal
+        return get_host(), get_sp_token()
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
@@ -1053,7 +1060,7 @@ _MODE_BADGE = html.Button(
 _THEMES = {
     "midnight": {"label": "Midnight", "dark": True, "icon": "bi-moon-stars-fill",
                  "bg-void": "#050810", "bg-dark": "#080c18", "bg-panel": "#0d1225",
-                 "bg-surface": "#141a2e", "bg-topbar": "rgba(8,12,24,0.95)",
+                 "bg-surface": "#141a2e", "bg-topbar": "#080c18",
                  "bg-card": "rgba(255,255,255,0.028)", "bg-hover": "rgba(255,255,255,0.055)",
                  "bg-active": "rgba(0,212,255,0.09)", "border": "rgba(255,255,255,0.07)",
                  "border-hi": "rgba(0,212,255,0.45)", "text-hi": "#f8fafc",
@@ -1061,7 +1068,7 @@ _THEMES = {
                  "accent": "#00d4ff", "card-bg": "#1a1d23"},
     "obsidian": {"label": "Obsidian", "dark": True, "icon": "bi-gem",
                  "bg-void": "#0a0a0a", "bg-dark": "#111111", "bg-panel": "#181818",
-                 "bg-surface": "#222222", "bg-topbar": "rgba(10,10,10,0.95)",
+                 "bg-surface": "#222222", "bg-topbar": "#0a0a0a",
                  "bg-card": "rgba(255,255,255,0.035)", "bg-hover": "rgba(255,255,255,0.06)",
                  "bg-active": "rgba(168,85,247,0.1)", "border": "rgba(255,255,255,0.08)",
                  "border-hi": "rgba(168,85,247,0.5)", "text-hi": "#fafafa",
@@ -1069,7 +1076,7 @@ _THEMES = {
                  "accent": "#a855f7", "card-bg": "#1e1e1e"},
     "deep-ocean": {"label": "Deep Ocean", "dark": True, "icon": "bi-water",
                    "bg-void": "#020617", "bg-dark": "#0f172a", "bg-panel": "#1e293b",
-                   "bg-surface": "#263448", "bg-topbar": "rgba(2,6,23,0.95)",
+                   "bg-surface": "#263448", "bg-topbar": "#020617",
                    "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.05)",
                    "bg-active": "rgba(56,189,248,0.1)", "border": "rgba(255,255,255,0.06)",
                    "border-hi": "rgba(56,189,248,0.5)", "text-hi": "#f8fafc",
@@ -1077,7 +1084,7 @@ _THEMES = {
                    "accent": "#38bdf8", "card-bg": "#1e293b"},
     "aurora": {"label": "Aurora", "dark": True, "icon": "bi-stars",
                "bg-void": "#030712", "bg-dark": "#0c1427", "bg-panel": "#162032",
-               "bg-surface": "#1e2a3e", "bg-topbar": "rgba(3,7,18,0.95)",
+               "bg-surface": "#1e2a3e", "bg-topbar": "#030712",
                "bg-card": "rgba(255,255,255,0.03)", "bg-hover": "rgba(255,255,255,0.055)",
                "bg-active": "rgba(16,185,129,0.1)", "border": "rgba(255,255,255,0.07)",
                "border-hi": "rgba(16,185,129,0.5)", "text-hi": "#ecfdf5",
@@ -1085,7 +1092,7 @@ _THEMES = {
                "accent": "#10b981", "card-bg": "#1a2332"},
     "snowlight": {"label": "Snowlight", "dark": False, "icon": "bi-sun-fill",
                   "bg-void": "#f8fafc", "bg-dark": "#f1f5f9", "bg-panel": "#ffffff",
-                  "bg-surface": "#eef2f7", "bg-topbar": "rgba(255,255,255,0.92)",
+                  "bg-surface": "#eef2f7", "bg-topbar": "#ffffff",
                   "bg-card": "rgba(0,0,0,0.03)", "bg-hover": "rgba(0,0,0,0.05)",
                   "bg-active": "rgba(99,102,241,0.08)", "border": "rgba(0,0,0,0.1)",
                   "border-hi": "rgba(99,102,241,0.5)", "text-hi": "#0f172a",
@@ -1093,7 +1100,7 @@ _THEMES = {
                   "accent": "#6366f1", "card-bg": "#ffffff"},
     "paper": {"label": "Paper", "dark": False, "icon": "bi-file-earmark-text",
               "bg-void": "#fafaf9", "bg-dark": "#f5f5f4", "bg-panel": "#ffffff",
-              "bg-surface": "#edeceb", "bg-topbar": "rgba(255,255,255,0.92)",
+              "bg-surface": "#edeceb", "bg-topbar": "#ffffff",
               "bg-card": "rgba(0,0,0,0.025)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(234,88,12,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(234,88,12,0.45)", "text-hi": "#1c1917",
@@ -1101,7 +1108,7 @@ _THEMES = {
               "accent": "#ea580c", "card-bg": "#ffffff"},
     "cloud": {"label": "Cloud", "dark": False, "icon": "bi-cloud-sun-fill",
               "bg-void": "#f0f9ff", "bg-dark": "#e0f2fe", "bg-panel": "#ffffff",
-              "bg-surface": "#daeaf8", "bg-topbar": "rgba(255,255,255,0.92)",
+              "bg-surface": "#daeaf8", "bg-topbar": "#ffffff",
               "bg-card": "rgba(0,0,0,0.02)", "bg-hover": "rgba(0,0,0,0.04)",
               "bg-active": "rgba(14,165,233,0.08)", "border": "rgba(0,0,0,0.08)",
               "border-hi": "rgba(14,165,233,0.45)", "text-hi": "#0c4a6e",
@@ -1496,17 +1503,47 @@ USER_DROPDOWN = html.Div([
         html.Div("Connection", className="auth-section-title mb-2"),
         dbc.RadioItems(
             id="conn-mode-radio",
-            options=[
-                {"label": "CLI Profile", "value": "profile"},
-                {"label": "SSO Login", "value": "sso"},
-                {"label": "URL + Token", "value": "custom"},
-            ],
-            value="profile",
+            options=(
+                [
+                    {"label": "On-Behalf-of User", "value": "obo"},
+                    {"label": "Service Principal", "value": "sp"},
+                ] if IS_DATABRICKS_APP else [
+                    {"label": "CLI Profile", "value": "profile"},
+                    {"label": "SSO Login", "value": "sso"},
+                    {"label": "URL + Token", "value": "custom"},
+                ]
+            ),
+            value="sp" if IS_DATABRICKS_APP else "profile",
             inline=True,
             className="conn-mode-radio mb-3",
             input_class_name="conn-radio-input",
             label_class_name="conn-radio-label",
         ),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-person-badge me-2 text-info"),
+                "Using the logged-in user's identity via the ",
+                html.Code("x-forwarded-access-token"),
+                " header.",
+            ], className="conn-hint"),
+        ], id="obo-section", style={"display": "none"}),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-robot me-2 text-warning"),
+                "Using the app's Service Principal credentials ",
+                html.Code("(DATABRICKS_CLIENT_ID / SECRET)"),
+                ".",
+            ], className="conn-hint"),
+            html.Div([
+                html.I(className="bi bi-exclamation-triangle me-1"),
+                "The Service Principal must be a member of the ",
+                html.Strong("admins"),
+                " group to access all workspace objects. ",
+                "Use the deploy script or add it manually via ",
+                html.Code("Settings → Identity and access → Groups → admins"),
+                ".",
+            ], className="conn-hint mt-2 text-warning", style={"fontSize": "11px"}),
+        ], id="sp-section", style={} if IS_DATABRICKS_APP else {"display": "none"}),
         _profile_section(),
         _sso_section(),
         _custom_section(),
@@ -1978,7 +2015,8 @@ def populate_dropdown(is_open, conn_config):
 
     # Auth type
     if IS_DATABRICKS_APP:
-        auth_type_display = "On-Behalf-Of (OBO)"
+        app_mode = (conn_config or {}).get("mode", "obo")
+        auth_type_display = "Service Principal (SP)" if app_mode == "sp" else "On-Behalf-Of (OBO)"
     elif conn_config.get("mode") == "custom":
         auth_type_display = "Personal Access Token"
     else:
@@ -2027,21 +2065,26 @@ def populate_dropdown(is_open, conn_config):
         profile_options,
     )
 
-# 4. Show/hide profile vs sso vs custom section
+# 4. Show/hide profile vs sso vs custom vs obo vs sp section
 @app.callback(
+    Output("obo-section", "style"),
+    Output("sp-section", "style"),
     Output("profile-section", "style"),
     Output("sso-section", "style"),
     Output("custom-section", "style"),
     Input("conn-mode-radio", "value"),
 )
 def toggle_conn_mode(mode):
-    """Callback 4: Show/hide the profile, SSO, or custom connection section."""
+    """Callback 4: Show/hide the active connection section."""
     hide = {"display": "none"}
-    if mode == "profile":
-        return {}, hide, hide
-    if mode == "sso":
-        return hide, {}, hide
-    return hide, hide, {}
+    show = {}
+    return (
+        show if mode == "obo" else hide,
+        show if mode == "sp" else hide,
+        show if mode == "profile" else hide,
+        show if mode == "sso" else hide,
+        show if mode == "custom" else hide,
+    )
 
 
 # 5. Show auth type hint when profile changes
@@ -2091,6 +2134,54 @@ def apply_connection(n_clicks, mode, profile, sso_host, custom_host, custom_toke
     """
     if not n_clicks:
         return no_update, no_update, no_update
+
+    if mode == "obo":
+        # On-Behalf-Of — uses X-Forwarded-Access-Token header injected by
+        # Databricks Apps proxy when User Authorization is enabled and
+        # scopes are configured for the app.
+        obo_token = flask_request.headers.get("X-Forwarded-Access-Token")
+        if not obo_token:
+            return no_update, html.Div([
+                html.Span("No OBO token available.", className="text-danger"),
+                html.Br(),
+                html.Span(
+                    "To enable OBO: 1) A workspace admin must enable "
+                    "User Authorization in workspace settings. "
+                    "2) Add scopes (e.g. 'all-apis') to this app in the "
+                    "Databricks Apps UI → Configure → Add scope. "
+                    "3) Restart the app.",
+                    className="text-muted",
+                    style={"fontSize": "11px"},
+                ),
+            ]), no_update
+        host = get_host()
+        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", obo_token, host)
+        if r["success"]:
+            user_label = r["data"].get("displayName", r["data"].get("userName", "User"))
+            return {"mode": "obo"}, html.Span([
+                html.I(className="bi bi-check-circle-fill me-1 text-success"),
+                f"Connected as {user_label} (OBO)",
+            ]), no_update
+        return no_update, html.Span(
+            f"OBO token present but API call failed: {r.get('error', 'unknown error')}",
+            className="text-danger",
+        ), no_update
+
+    if mode == "sp":
+        # Service Principal — validate we can get a token
+        token = get_sp_token()
+        if not token:
+            return no_update, html.Span(
+                "Could not obtain SP token — check DATABRICKS_CLIENT_ID / SECRET env vars.",
+                className="text-danger",
+            ), no_update
+        host = get_host()
+        r = make_api_call("GET", "/api/2.0/preview/scim/v2/Me", token, host)
+        sp_label = r["data"].get("displayName", "Service Principal") if r["success"] else "Service Principal"
+        return {"mode": "sp"}, html.Span([
+            html.I(className="bi bi-check-circle-fill me-1 text-success"),
+            f"Connected as {sp_label}",
+        ]), no_update
 
     if mode == "profile":
         if not profile:

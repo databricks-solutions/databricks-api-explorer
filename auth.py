@@ -28,6 +28,40 @@ import requests
 IS_DATABRICKS_APP: bool = bool(os.getenv("DATABRICKS_CLIENT_SECRET"))
 
 
+def _ensure_host_scheme(host: str) -> str:
+    """Ensure the host URL has an https:// scheme."""
+    host = host.strip().rstrip("/")
+    if host and not host.startswith("https://"):
+        host = "https://" + host
+    return host
+
+
+def get_sp_token() -> Optional[str]:
+    """Obtain an OAuth token using the Service Principal client credentials.
+
+    Uses the Databricks SDK ``Config`` which reads ``DATABRICKS_HOST``,
+    ``DATABRICKS_CLIENT_ID``, and ``DATABRICKS_CLIENT_SECRET`` env vars
+    auto-injected in Databricks Apps.  The SDK handles the correct OIDC
+    endpoint for each cloud provider (AWS, Azure, GCP).
+
+    Returns:
+        The access token string, or ``None`` on failure.
+    """
+    try:
+        from databricks.sdk.core import Config
+        cfg = Config(
+            host=_ensure_host_scheme(os.getenv("DATABRICKS_HOST", "")),
+            client_id=os.getenv("DATABRICKS_CLIENT_ID", ""),
+            client_secret=os.getenv("DATABRICKS_CLIENT_SECRET", ""),
+        )
+        auth_val = cfg.authenticate().get("Authorization", "")
+        return auth_val[7:] if auth_val.startswith("Bearer ") else None
+    except Exception:
+        return None
+
+
+
+
 # ── CLI Profile discovery ──────────────────────────────────────────────────────
 
 def get_cli_profiles() -> List[str]:
@@ -253,7 +287,10 @@ def get_host() -> str:
         on failure.
     """
     if IS_DATABRICKS_APP:
-        return os.getenv("DATABRICKS_HOST", "").rstrip("/")
+        host = os.getenv("DATABRICKS_HOST", "").rstrip("/")
+        if host and not host.startswith("https://"):
+            host = "https://" + host
+        return host
     try:
         return (_get_local_config().host or "").rstrip("/")
     except Exception:
