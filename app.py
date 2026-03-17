@@ -3093,6 +3093,21 @@ app.clientside_callback(
 )
 
 
+# 14c. Show spinner when an inline link / chip / action icon is clicked
+app.clientside_callback(
+    """
+    function(link_data) {
+        if (!link_data) return window.dash_clientside.no_update;
+        document.title = '\u23f3 Loading\u2026 \u2014 Databricks API Explorer';
+        return 'topbar-spinner';
+    }
+    """,
+    Output("topbar-spinner", "className", allow_duplicate=True),
+    Input("iframe-link-click", "data"),
+    prevent_initial_call=True,
+)
+
+
 # 15. Wire up postMessage from large-JSON iframes → iframe-link-click store.
 #     set_props writes to the store from outside a Dash callback (event listener).
 app.clientside_callback(
@@ -3120,6 +3135,7 @@ app.clientside_callback(
     Output("selected-endpoint", "data", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
     Output("response-cache", "data", allow_duplicate=True),
+    Output("spinner-off", "data", allow_duplicate=True),
     Input("iframe-link-click", "data"),
     State("conn-config", "data"),
     State("response-cache", "data"),
@@ -3128,16 +3144,16 @@ app.clientside_callback(
 def handle_iframe_link_click(link_data, conn_config, cache):
     """Callback 16: Navigate to a *get* endpoint when an inline ID link is clicked."""
     if not link_data:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     get_id = link_data.get("gid", "")
     param_name = link_data.get("par", "")
     value = link_data.get("val", "")
     if not get_id or not param_name or value == "":
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     extras = link_data.get("ext") or {}
     path = endpoint["path"]
@@ -3159,7 +3175,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     ws_host, ws_token = _resolve_conn(conn_config)
     if not ws_host:
-        return no_update, build_error_panel("No workspace host."), no_update
+        return no_update, build_error_panel("No workspace host."), no_update, time.time()
 
     is_account = endpoint.get("scope") == "account"
     if is_account:
@@ -3168,7 +3184,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         host, token = ws_host, ws_token
 
     if not token:
-        return no_update, build_error_panel("No auth token."), no_update
+        return no_update, build_error_panel("No auth token."), no_update, time.time()
 
     method = endpoint.get("method", "GET")
     body = None
@@ -3185,7 +3201,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
     endpoint_with_prefill = {**endpoint, "_prefill": prefill}
     new_cache = dict(cache or {})
     new_cache[get_id] = {"result": result, "chips": chips or None}
-    return endpoint_with_prefill, build_response_panel(result, chips), new_cache
+    return endpoint_with_prefill, build_response_panel(result, chips), new_cache, time.time()
 
 
 # 17. Side-panel toggle — pure JS, no server round-trip
