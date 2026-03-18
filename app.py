@@ -2515,7 +2515,8 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
         host, token = ws_host, ws_token
 
     if not token:
-        msg = "No auth token for the accounts console. Ensure your CLI profile has an account_id configured." if is_account else "No auth token. Configure a connection in the user menu."
+        msg = ("No auth token for the accounts console. Ensure your CLI profile has an account_id configured. "
+               "Note: Account APIs require account admin privileges in Databricks.") if is_account else "No auth token. Configure a connection in the user menu."
         return build_error_panel(msg), no_update, time.time(), None, no_update, {"display": "none"}, ""
 
     try:
@@ -3184,7 +3185,8 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         host, token = ws_host, ws_token
 
     if not token:
-        return no_update, build_error_panel("No auth token."), no_update, time.time()
+        msg = "No auth token for the accounts console. Note: Account APIs require account admin privileges in Databricks." if is_account else "No auth token."
+        return no_update, build_error_panel(msg), no_update, time.time()
 
     method = endpoint.get("method", "GET")
     body = None
