@@ -1312,11 +1312,15 @@ body {
   display: inline-flex;
   align-items: center;
 }
-.reauth-btn:hover {
+.reauth-btn:hover:not(:disabled) {
   background: rgba(168,85,247,0.22);
   border-color: rgba(168,85,247,0.6);
   color: #d8b4fe;
   box-shadow: 0 0 14px rgba(168,85,247,0.2);
+}
+.reauth-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── Utility ──────────────────────────────────────────────────────── */

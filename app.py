@@ -1553,6 +1553,7 @@ USER_DROPDOWN = html.Div([
                 id="reauth-btn",
                 n_clicks=0,
                 className="reauth-btn",
+                disabled=IS_DATABRICKS_APP,
             ),
             html.Button(
                 [html.I(className="bi bi-plug-fill me-2"), "Connect"],
