@@ -291,7 +291,7 @@ _TREE_CSS = (
     ".jts:hover .ts-tip{visibility:visible;opacity:1;}"
     ".ts-tip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 4px);left:50%;"
     "transform:translateX(-50%);background:var(--t-tip-bg);color:var(--t-text-hi);font-size:11px;"
-    "padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;"
+    "padding:4px 8px;border-radius:4px;white-space:pre;pointer-events:none;line-height:1.5;"
     "border:1px solid var(--t-btn-border);z-index:100;"
     "transition:opacity .15s;}"
     "::-webkit-scrollbar{width:6px;height:6px}"
@@ -316,7 +316,8 @@ function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=
 function idLink(cls,display,gid,par,val,ext){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;if(ext)e.dataset.ext=JSON.stringify(ext);e.onclick=function(){var msg={type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val};if(e.dataset.ext)msg.ext=JSON.parse(e.dataset.ext);window.parent.postMessage(msg,'*');};return e;}
 var TS_KEYS=/time$|_at$|timestamp$|_date$|expiration$|expired$|created$|updated$|deleted$|started$|finished$|modified$|deadline$|_ts$|start_time|end_time|creation_time|last_active_time|expiry_time/i;
 function isEpoch(val,pKey){if(typeof val!=='number'||!pKey||!TS_KEYS.test(pKey))return false;if(val>1e12&&val<2e13)return val;if(val>1e9&&val<2e10)return val*1000;return false;}
-function tsSpan(cls,display,ms){var w=mkEl('span','jts '+cls);w.textContent=display;var tip=mkEl('span','ts-tip');tip.textContent=new Date(ms).toLocaleString();w.appendChild(tip);return w;}
+function getSettingsTz(){try{var s=JSON.parse(window.parent.document.getElementById('settings-store').textContent||'{}');return s.timezone||'Europe/Berlin';}catch(e){return 'Europe/Berlin';}}
+function tsSpan(cls,display,ms){var w=mkEl('span','jts '+cls);w.textContent=display;var tip=mkEl('span','ts-tip');var d=new Date(ms);var tz=getSettingsTz();var local=d.toLocaleString(undefined,{timeZone:tz,year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});var utc=d.toLocaleString(undefined,{timeZone:'UTC',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});tip.textContent=local+' ('+tz.replace(/_/g,' ')+')\n'+utc+' (UTC)';w.appendChild(tip);return w;}
 function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
   var t=typeof val;
