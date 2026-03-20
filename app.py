@@ -316,7 +316,7 @@ function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=
 function idLink(cls,display,gid,par,val,ext){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;if(ext)e.dataset.ext=JSON.stringify(ext);e.onclick=function(){var msg={type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val};if(e.dataset.ext)msg.ext=JSON.parse(e.dataset.ext);window.parent.postMessage(msg,'*');};return e;}
 var TS_KEYS=/time$|_at$|timestamp$|_date$|expiration$|expired$|created$|updated$|deleted$|started$|finished$|modified$|deadline$|_ts$|start_time|end_time|creation_time|last_active_time|expiry_time/i;
 function isEpoch(val,pKey){if(typeof val!=='number'||!pKey||!TS_KEYS.test(pKey))return false;if(val>1e12&&val<2e13)return val;if(val>1e9&&val<2e10)return val*1000;return false;}
-function getSettingsTz(){try{var s=JSON.parse(window.parent.document.getElementById('settings-store').textContent||'{}');return s.timezone||'Europe/Berlin';}catch(e){return 'Europe/Berlin';}}
+function getSettingsTz(){try{return window.parent.document.documentElement.dataset.tz||'Europe/Berlin';}catch(e){return 'Europe/Berlin';}}
 function tsSpan(cls,display,ms){var w=mkEl('span','jts '+cls);w.textContent=display;var tip=mkEl('span','ts-tip');var d=new Date(ms);var tz=getSettingsTz();var local=d.toLocaleString(undefined,{timeZone:tz,year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});var utc=d.toLocaleString(undefined,{timeZone:'UTC',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});tip.textContent=local+' ('+tz.replace(/_/g,' ')+')\n'+utc+' (UTC)';w.appendChild(tip);return w;}
 function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
@@ -1873,6 +1873,9 @@ app.clientside_callback(
                 card.classList.add('theme-card-active');
             }
         });
+
+        // Expose timezone on root element so iframes can read it
+        document.documentElement.dataset.tz = settings.timezone || 'Europe/Berlin';
 
         // Push theme into JSON tree iframes
         var iframeVars = isDark ? {
