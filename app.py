@@ -1716,9 +1716,12 @@ def rebuild_sidebar_for_scope(scope):
 def init_on_load(_, conn_config):
     """Callback 1: Populate topbar user chip, host label, workspace name, and metastore."""
     host, token = _resolve_conn(conn_config)
-    host_label = html.Span(
+    host_label = html.A(
         (host or "").replace("https://", ""),
-        className="text-muted",
+        href=host,
+        target="_blank",
+        rel="noopener noreferrer",
+        className="text-muted host-link",
     ) if host else html.Span("(not connected)", className="text-warning")
 
     ws_name = None
