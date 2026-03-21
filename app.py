@@ -1335,6 +1335,29 @@ _DEPLOY_MODAL = dbc.Modal([
             html.Span("View logs: ", className="text-muted small"),
             html.Code("databricks apps logs databricks-api-explorer --profile <your-profile>", className="small"),
         ]),
+
+        html.Hr(className="divider"),
+
+        html.H6([html.I(className="bi bi-github me-2"), "Deploy from GitHub"], className="deploy-section-title"),
+        html.P("Deploy directly from the GitHub repository — no need to clone or download anything:", className="text-muted small mb-2"),
+        html.Pre(
+            "# Deploy the latest version from GitHub\n"
+            "databricks apps create databricks-api-explorer \\\n"
+            "  --source-url https://github.com/guido-oswald_data/DatabricksAPIexplorer \\\n"
+            "  --profile <your-profile>",
+            className="deploy-code",
+        ),
+        html.P([
+            "This pulls the source code directly from the ",
+            html.A("GitHub repository", href="https://github.com/guido-oswald_data/DatabricksAPIexplorer",
+                    target="_blank", rel="noopener noreferrer", className="about-link"),
+            " and deploys it as a Databricks App. "
+            "To update to a newer version later, re-run the command with ",
+            html.Code("apps deploy"),
+            " instead of ",
+            html.Code("apps create"),
+            ".",
+        ], className="text-muted small mb-2"),
     ]),
 ], id="deploy-modal", is_open=False, size="lg", centered=True, className="deploy-modal")
 
