@@ -9,4 +9,4 @@ targets:
     default: true
     mode: development
     workspace:
-      profile: guido-demo-azure
+      profile: DEFAULT

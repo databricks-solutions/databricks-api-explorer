@@ -1343,13 +1343,13 @@ _DEPLOY_MODAL = dbc.Modal([
         html.Pre(
             "# Deploy the latest version from GitHub\n"
             "databricks apps create databricks-api-explorer \\\n"
-            "  --source-url https://github.com/guido-oswald_data/DatabricksAPIexplorer \\\n"
+            "  --source-url https://github.com/<your-github-org>/DatabricksAPIexplorer \\\n"
             "  --profile <your-profile>",
             className="deploy-code",
         ),
         html.P([
             "This pulls the source code directly from the ",
-            html.A("GitHub repository", href="https://github.com/guido-oswald_data/DatabricksAPIexplorer",
+            html.A("GitHub repository", href="https://github.com/<your-github-org>/DatabricksAPIexplorer",
                     target="_blank", rel="noopener noreferrer", className="about-link"),
             " and deploys it as a Databricks App. "
             "To update to a newer version later, re-run the command with ",
@@ -1376,17 +1376,17 @@ _ABOUT_MODAL = dbc.Modal([
             html.Div([
                 html.I(className="bi bi-github me-2"),
                 html.A(
-                    "github.com/guido-oswald_data/DatabricksAPIexplorer",
-                    href="https://github.com/guido-oswald_data/DatabricksAPIexplorer",
+                    "GitHub Repository",
+                    href="https://github.com/<your-github-org>/DatabricksAPIexplorer",
                     target="_blank", rel="noopener noreferrer",
                     className="about-link",
                 ),
             ], className="about-row mb-2"),
             html.Div([
-                html.I(className="bi bi-envelope me-2"),
+                html.I(className="bi bi-bug me-2"),
                 html.A(
-                    "guido@databricks.com",
-                    href="mailto:guido@databricks.com",
+                    "Contact",
+                    href="https://github.com/<your-github-org>/DatabricksAPIexplorer/issues",
                     className="about-link",
                 ),
             ], className="about-row mb-2"),

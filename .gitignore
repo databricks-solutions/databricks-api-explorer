@@ -9,3 +9,9 @@ dist/
 build/
 .DS_Store
 .databricks/
+.vibe-demo.yaml
+git_email_change.sh
+terraform.tfstate*
+README.html
+README.jpeg
+README.png

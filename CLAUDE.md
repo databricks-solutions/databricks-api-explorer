@@ -8,15 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run locally (debug mode, port 8050)
 python app.py
 
-# Deploy to Databricks Apps via Asset Bundle (dev target, guido-demo-azure profile)
+# Deploy to Databricks Apps via Asset Bundle (dev target)
 databricks bundle deploy
 databricks bundle run api_explorer
 
 # Deploy directly via CLI
-databricks apps deploy databricks-api-explorer --source-code-path . --profile guido-demo-azure
+databricks apps deploy databricks-api-explorer --source-code-path . --profile <your-profile>
 
 # View production logs
-databricks apps logs databricks-api-explorer --profile guido-demo-azure
+databricks apps logs databricks-api-explorer --profile <your-profile>
 ```
 
 There are no tests, linters, or build steps.

@@ -1,6 +1,6 @@
 # Databricks API Explorer
 
-An ultra-modern, interactive REST API explorer for Databricks — covering both **Workspace** and **Account-level** APIs. Built as a Databricks App with dual-mode authentication: runs locally via Databricks CLI SSO and in production as a Databricks App using On-Behalf-Of (OBO) authentication.
+An interactive REST API explorer for Databricks — covering both **Workspace** and **Account-level** APIs. Built as a Databricks App with dual-mode authentication: runs locally via Databricks CLI SSO and in production as a Databricks App using On-Behalf-Of (OBO) authentication.
 
 ---
 
@@ -290,7 +290,7 @@ The app auto-detects local mode (no `DATABRICKS_CLIENT_SECRET` env var) and uses
 ### Deploy via Asset Bundle (recommended)
 
 ```bash
-# Deploy to dev target (uses guido-demo-azure profile)
+# Deploy to dev target (uses your configured profile)
 databricks bundle deploy
 
 # Start the app
@@ -302,13 +302,13 @@ databricks bundle run api_explorer
 ```bash
 databricks apps deploy databricks-api-explorer \
   --source-code-path . \
-  --profile guido-demo-azure
+  --profile <your-profile>
 ```
 
 ### View Logs
 
 ```bash
-databricks apps logs databricks-api-explorer --profile guido-demo-azure
+databricks apps logs databricks-api-explorer --profile <your-profile>
 ```
 
 ---

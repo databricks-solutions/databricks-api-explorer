@@ -154,46 +154,46 @@ else
   echo "  Skipping thumbnail upload (${SCREENSHOT} not found)."
 fi
 
-# ── Configure OBO scopes (requires an account-level profile) ──────────
-echo ""
-echo "  Configuring OBO user authorization scopes..."
+# # ── Configure OBO scopes (requires an account-level profile) ──────────
+# echo ""
+# echo "  Configuring OBO user authorization scopes..."
 
-if [[ -z "$integration_id" ]]; then
-  echo "  Warning: Could not retrieve app integration ID. OBO scopes not configured."
-  echo "  You can configure them manually in the Databricks Apps UI → Configure → Add scope."
-else
-  # Find an account-level profile (host contains 'accounts.')
-  account_profile=""
-  while IFS= read -r line; do
-    if [[ "$line" =~ ^\[(.+)\]$ ]]; then
-      _prof="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^host[[:space:]]*=[[:space:]]*(.+)$ ]]; then
-      _host="${BASH_REMATCH[1]}"
-      if [[ "$_host" == *"accounts."* ]]; then
-        account_profile="$_prof"
-        break
-      fi
-    fi
-  done < "$CONFIG_FILE"
+# if [[ -z "$integration_id" ]]; then
+#   echo "  Warning: Could not retrieve app integration ID. OBO scopes not configured."
+#   echo "  You can configure them manually in the Databricks Apps UI → Configure → Add scope."
+# else
+#   # Find an account-level profile (host contains 'accounts.')
+#   account_profile=""
+#   while IFS= read -r line; do
+#     if [[ "$line" =~ ^\[(.+)\]$ ]]; then
+#       _prof="${BASH_REMATCH[1]}"
+#     elif [[ "$line" =~ ^host[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+#       _host="${BASH_REMATCH[1]}"
+#       if [[ "$_host" == *"accounts."* ]]; then
+#         account_profile="$_prof"
+#         break
+#       fi
+#     fi
+#   done < "$CONFIG_FILE"
 
-  if [[ -z "$account_profile" ]]; then
-    echo "  Warning: No account-level profile found in ~/.databrickscfg."
-    echo "  OBO scopes not configured. Add them in the Databricks Apps UI → Configure → Add scope."
-  else
-    echo "  Using account profile: ${account_profile}"
-    echo "  Updating integration ${integration_id} with all-apis scope..."
+#   if [[ -z "$account_profile" ]]; then
+#     echo "  Warning: No account-level profile found in ~/.databrickscfg."
+#     echo "  OBO scopes not configured. Add them in the Databricks Apps UI → Configure → Add scope."
+#   else
+#     echo "  Using account profile: ${account_profile}"
+#     echo "  Updating integration ${integration_id} with all-apis scope..."
 
-    redirect_urls=$(databricks account custom-app-integration get "$integration_id" \
-      --profile "$account_profile" -o json 2>/dev/null \
-      | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('redirect_urls',[])))" 2>/dev/null)
+#     redirect_urls=$(databricks account custom-app-integration get "$integration_id" \
+#       --profile "$account_profile" -o json 2>/dev/null \
+#       | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('redirect_urls',[])))" 2>/dev/null)
 
-    databricks account custom-app-integration update "$integration_id" \
-      --profile "$account_profile" \
-      --json "{\"scopes\": ${OBO_SCOPES}, \"redirect_urls\": ${redirect_urls:-"[]"}}" 2>/dev/null \
-      && echo "  OBO scopes configured successfully." \
-      || echo "  Warning: Could not update OBO scopes. Configure them manually in the Databricks Apps UI."
-  fi
-fi
+#     databricks account custom-app-integration update "$integration_id" \
+#       --profile "$account_profile" \
+#       --json "{\"scopes\": ${OBO_SCOPES}, \"redirect_urls\": ${redirect_urls:-"[]"}}" 2>/dev/null \
+#       && echo "  OBO scopes configured successfully." \
+#       || echo "  Warning: Could not update OBO scopes. Configure them manually in the Databricks Apps UI."
+#   fi
+# fi
 
 # ── Add Service Principal to admins group ─────────────────────────────
 echo ""
