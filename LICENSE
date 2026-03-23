@@ -1,0 +1,102 @@
+MIT License
+
+Copyright (c) 2025 Databricks API Explorer Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+THIRD-PARTY LICENSES
+================================================================================
+
+This project uses the following third-party libraries, frameworks, fonts, and
+assets. Each is listed with its license type and source.
+
+--------------------------------------------------------------------------------
+PYTHON PACKAGES
+--------------------------------------------------------------------------------
+
+Dash 4.0.0
+  License: MIT
+  Source:  https://github.com/plotly/dash
+  Used for: Web application framework
+
+Plotly 6.6.0 (indirect dependency via Dash)
+  License: MIT
+  Source:  https://github.com/plotly/plotly.py
+  Used for: Interactive components
+
+dash-bootstrap-components 2.0.4
+  License: Apache License 2.0
+  Source:  https://github.com/facultyai/dash-bootstrap-components
+  Used for: Bootstrap-themed Dash components
+
+requests 2.32.5
+  License: Apache License 2.0
+  Source:  https://github.com/psf/requests
+  Used for: HTTP client
+
+databricks-sdk 0.96.0
+  License: Apache License 2.0
+  Source:  https://github.com/databricks/databricks-sdk-py
+  Used for: Databricks authentication and API interaction
+
+--------------------------------------------------------------------------------
+CSS / UI FRAMEWORKS (loaded via CDN)
+--------------------------------------------------------------------------------
+
+Bootstrap 5.3.6
+  License: MIT
+  Source:  https://github.com/twbs/bootstrap
+  CDN:     https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/
+  Used for: Grid system, utilities, base component styling
+
+Bootswatch CYBORG Theme 5.3.6
+  License: MIT
+  Source:  https://github.com/thomaspark/bootswatch
+  CDN:     https://cdn.jsdelivr.net/npm/bootswatch@5.3.6/dist/cyborg/
+  Used for: Dark theme styling
+
+Bootstrap Icons 1.11.3
+  License: MIT
+  Source:  https://github.com/twbs/icons
+  CDN:     https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/
+  Used for: UI icons throughout the application
+
+--------------------------------------------------------------------------------
+FONTS (loaded via Google Fonts)
+--------------------------------------------------------------------------------
+
+Inter
+  License: SIL Open Font License 1.1
+  Source:  https://github.com/rsms/inter
+  Used for: UI typography
+
+JetBrains Mono
+  License: SIL Open Font License 1.1
+  Source:  https://github.com/JetBrains/JetBrainsMono
+  Used for: Monospace / code typography
+
+--------------------------------------------------------------------------------
+TRADEMARKS
+--------------------------------------------------------------------------------
+
+Databricks Logo (assets/databricks.svg)
+  The Databricks name and logo are trademarks of Databricks, Inc.
+  Used with permission for applications built on the Databricks platform.
