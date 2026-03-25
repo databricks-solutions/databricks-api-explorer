@@ -1442,6 +1442,7 @@ TOPBAR = dbc.Navbar(
                     html.Span(id="metastore-display", className="metastore-display"),
                 ], className="workspace-info-row"),
             ], className="workspace-info ms-3"),
+            html.A(id="cloud-icon", className="cloud-icon ms-3", target="_blank", rel="noopener noreferrer", style={"display": "none"}),
             html.Button(
                 html.I(className="bi bi-gear-fill"),
                 id="settings-btn",
@@ -1758,6 +1759,10 @@ def rebuild_sidebar_for_scope(scope, cloud):
     Output("workspace-name-display", "children"),
     Output("metastore-display", "children"),
     Output("cloud-provider", "data"),
+    Output("cloud-icon", "children"),
+    Output("cloud-icon", "href"),
+    Output("cloud-icon", "title"),
+    Output("cloud-icon", "style"),
     Input("url", "pathname"),
     Input("conn-config", "data"),
 )
@@ -1807,7 +1812,26 @@ def init_on_load(_, conn_config):
         className="metastore-name-text"
     ) if ms_name else None
 
-    return user_el, host_label, ws_name_el, ms_name_el, cloud
+    # Cloud icon for topbar
+    _CLOUD_META = {
+        "aws":   {"icon": "/assets/aws.svg",   "url": "https://console.aws.amazon.com",       "label": "AWS Console"},
+        "azure": {"icon": "/assets/azure.svg",  "url": "https://portal.azure.com",             "label": "Azure Portal"},
+        "gcp":   {"icon": "/assets/gcp.svg",    "url": "https://console.cloud.google.com",     "label": "Google Cloud Console"},
+    }
+    cm = _CLOUD_META.get(cloud, {})
+    if cm:
+        cloud_children = html.Img(src=cm["icon"], className="cloud-icon-img")
+        cloud_href = cm["url"]
+        cloud_title = cm["label"]
+        cloud_style = {}
+    else:
+        cloud_children = None
+        cloud_href = ""
+        cloud_title = ""
+        cloud_style = {"display": "none"}
+
+    return (user_el, host_label, ws_name_el, ms_name_el, cloud,
+            cloud_children, cloud_href, cloud_title, cloud_style)
 
 
 # 1b. Toggle deploy modal
