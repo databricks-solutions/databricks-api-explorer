@@ -272,7 +272,54 @@ body {
 .ep-delete { background: rgba(239,68,68,0.15); color: var(--red); }
 .ep-patch  { background: rgba(16,185,129,0.15); color: var(--green); }
 
-.ep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+
+/* Sidebar endpoint doc link icon — always visible, subtly dim */
+.ep-doc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px;
+  color: var(--text-3);
+  font-size: 10px;
+  text-decoration: none;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.endpoint-btn:hover .ep-doc-link { opacity: 0.75; }
+.ep-doc-link:hover { opacity: 1 !important; color: var(--cyan); }
+
+/* Sidebar category doc link icon — right of the badge */
+.cat-doc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 2px;
+  color: var(--text-3);
+  font-size: 10px;
+  text-decoration: none;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.cat-doc-link:hover { opacity: 1; color: var(--cyan); }
+.cat-header:hover .cat-doc-link { opacity: 0.75; }
+
+/* Detail header doc link icon */
+.endpoint-name { font-size: 18px; font-weight: 600; color: var(--text-hi); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.endpoint-doc-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-3);
+  font-size: 13px;
+  text-decoration: none;
+  opacity: 0.5;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.endpoint-doc-link:hover { opacity: 1; color: var(--cyan); }
 
 /* ── Main Content — side-by-side: form left | response right ─────── */
 .main-content {
@@ -355,7 +402,6 @@ body {
   margin-bottom: 16px;
 }
 .endpoint-meta { flex: 1; min-width: 0; }
-.endpoint-name { font-size: 18px; font-weight: 600; color: var(--text-hi); margin-bottom: 4px; }
 .endpoint-category { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; }
 .endpoint-path {
   font-family: var(--font-mono);

@@ -39,7 +39,10 @@ from api_catalog import (
     TOTAL_ACCOUNT_ENDPOINTS,
     TOTAL_CATEGORIES,
     TOTAL_ENDPOINTS,
+    detect_cloud,
     extract_chips,
+    get_category_doc_url,
+    get_doc_url,
     get_endpoint_by_id,
 )
 from auth import (
@@ -973,34 +976,53 @@ def build_param_form(
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
-def _build_accordion_items(catalog: Dict[str, Any]) -> list:
+def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
     """Build accordion items for a given API catalog.
 
     Args:
         catalog: Either :data:`API_CATALOG` or
             :data:`ACCOUNT_API_CATALOG`.
+        cloud: Optional cloud provider for doc links
+            (``"aws"``, ``"azure"``, or ``"gcp"``).
 
     Returns:
         A list of :class:`dbc.AccordionItem` components.
     """
     items = []
     for cat_name, cat in catalog.items():
-        btns = [
-            html.Button(
-                [html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
-                 html.Span(ep["name"], className="ep-name")],
+        btns = []
+        for ep in cat["endpoints"]:
+            children = [
+                html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
+                html.Span(ep["name"], className="ep-name"),
+            ]
+            doc_url = get_doc_url(ep["id"], cloud)
+            if doc_url:
+                children.append(html.A(
+                    html.I(className="bi bi-box-arrow-up-right"),
+                    href=doc_url, target="_blank", rel="noopener noreferrer",
+                    className="ep-doc-link", title="API docs",
+                ))
+            btns.append(html.Button(
+                children,
                 id={"type": "endpoint-btn", "id": ep["id"]},
                 n_clicks=0,
                 className="endpoint-btn",
                 title=ep.get("description", ""),
-            )
-            for ep in cat["endpoints"]
-        ]
-        title_el = html.Span([
+            ))
+        cat_doc_url = get_category_doc_url(cat_name, cloud)
+        title_children = [
             html.I(className=f"bi {cat['icon']} me-2", style={"color": cat["color"]}),
             cat_name,
             dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"),
-        ], className="cat-header d-flex align-items-center w-100")
+        ]
+        if cat_doc_url:
+            title_children.append(html.A(
+                html.I(className="bi bi-box-arrow-up-right"),
+                href=cat_doc_url, target="_blank", rel="noopener noreferrer",
+                className="cat-doc-link", title=f"{cat_name} API docs",
+            ))
+        title_el = html.Span(title_children, className="cat-header d-flex align-items-center w-100")
         items.append(dbc.AccordionItem(html.Div(btns, className="endpoint-list"), title=title_el))
     return items
 
@@ -1658,6 +1680,7 @@ app.layout = html.Div([
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
     dcc.Store(id="api-scope", data="workspace"),     # "workspace" or "account"
+    dcc.Store(id="cloud-provider", data=None),       # "aws", "azure", "gcp", or None
 
     TOPBAR,
     _DROPDOWN_OVERLAY,
@@ -1717,13 +1740,14 @@ app.clientside_callback(
     Output("scope-workspace-btn", "className"),
     Output("scope-account-btn", "className"),
     Input("api-scope", "data"),
+    Input("cloud-provider", "data"),
 )
-def rebuild_sidebar_for_scope(scope):
-    """Callback 0b: Rebuild the accordion items when the API scope changes."""
+def rebuild_sidebar_for_scope(scope, cloud):
+    """Callback 0b: Rebuild the accordion items when the API scope or cloud changes."""
     if scope == "account":
-        items = _build_accordion_items(ACCOUNT_API_CATALOG)
+        items = _build_accordion_items(ACCOUNT_API_CATALOG, cloud)
         return items, "scope-btn", "scope-btn scope-btn-active"
-    items = _build_accordion_items(API_CATALOG)
+    items = _build_accordion_items(API_CATALOG, cloud)
     return items, "scope-btn scope-btn-active", "scope-btn"
 
 
@@ -1733,12 +1757,14 @@ def rebuild_sidebar_for_scope(scope):
     Output("host-display", "children"),
     Output("workspace-name-display", "children"),
     Output("metastore-display", "children"),
+    Output("cloud-provider", "data"),
     Input("url", "pathname"),
     Input("conn-config", "data"),
 )
 def init_on_load(_, conn_config):
     """Callback 1: Populate topbar user chip, host label, workspace name, and metastore."""
     host, token = _resolve_conn(conn_config)
+    cloud = detect_cloud(host) if host else None
     host_label = html.A(
         (host or "").replace("https://", ""),
         href=host,
@@ -1781,7 +1807,7 @@ def init_on_load(_, conn_config):
         className="metastore-name-text"
     ) if ms_name else None
 
-    return user_el, host_label, ws_name_el, ms_name_el
+    return user_el, host_label, ws_name_el, ms_name_el, cloud
 
 
 # 1b. Toggle deploy modal
@@ -2399,9 +2425,10 @@ def sync_active_button(endpoint, btn_ids):
     Output("endpoint-detail", "className"),
     Input("selected-endpoint", "data"),
     State("conn-config", "data"),
+    State("cloud-provider", "data"),
     prevent_initial_call=True,
 )
-def render_endpoint_detail(endpoint: Optional[Dict], conn_config):
+def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud):
     """Callback 9: Render the endpoint detail card (header, path, params, Execute button)."""
     if not endpoint:
         return WELCOME, "form-panel"
@@ -2415,11 +2442,19 @@ def render_endpoint_detail(endpoint: Optional[Dict], conn_config):
             prefill["account_id"] = acct_id
 
     cat_color = endpoint.get("category_color", "#00d4ff")
+    doc_url = get_doc_url(endpoint["id"], cloud)
+    name_children = [html.Span(endpoint["name"])]
+    if doc_url:
+        name_children.append(html.A(
+            html.I(className="bi bi-box-arrow-up-right"),
+            href=doc_url, target="_blank", rel="noopener noreferrer",
+            className="endpoint-doc-link", title="View API docs",
+        ))
     content = html.Div([
         html.Div([
             method_badge(endpoint.get("method", "GET")),
             html.Div([
-                html.Div(endpoint["name"], className="endpoint-name"),
+                html.Div(name_children, className="endpoint-name"),
                 html.Div(html.Span(endpoint.get("category", ""), style={"color": cat_color}), className="endpoint-category"),
             ], className="endpoint-meta"),
         ], className="endpoint-header"),

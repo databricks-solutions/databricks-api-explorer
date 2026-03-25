@@ -1365,3 +1365,218 @@ TOTAL_ENDPOINTS: int = sum(len(c["endpoints"]) for c in API_CATALOG.values())
 TOTAL_CATEGORIES: int = len(API_CATALOG)
 TOTAL_ACCOUNT_ENDPOINTS: int = sum(len(c["endpoints"]) for c in ACCOUNT_API_CATALOG.values())
 TOTAL_ACCOUNT_CATEGORIES: int = len(ACCOUNT_API_CATALOG)
+
+
+# ── API Documentation URL map ────────────────────────────────────────────────
+# Maps endpoint IDs to their path on https://docs.databricks.com/api/
+# Pattern: {scope}/{service}/{operation}
+_DOCS_BASE = "https://docs.databricks.com/api"
+_CLOUD_PREFIXES = {"aws": "aws/", "azure": "azure/", "gcp": "gcp/"}
+
+# Maps category names → docs service path (without scope prefix).
+# Used for linking category headings to the API group overview page.
+CATEGORY_DOCS_MAP: Dict[str, str] = {
+    # Workspace
+    "Clusters":            "workspace/clusters",
+    "Jobs":                "workspace/jobs",
+    "Workspace":           "workspace/workspace",
+    "DBFS":                "workspace/dbfs",
+    "SQL Warehouses":      "workspace/warehouses",
+    "Unity Catalog":       "workspace/catalogs",
+    "MLflow":              "workspace/experiments",
+    "Model Serving":       "workspace/servingendpoints",
+    "Pipelines (DLT)":     "workspace/pipelines",
+    "Secrets":             "workspace/secrets",
+    "Identity (SCIM)":     "workspace/users",
+    "Tokens":              "workspace/tokenmanagement",
+    "Instance Pools":      "workspace/instancepools",
+    "Cluster Policies":    "workspace/clusterpolicies",
+    "Repos":               "workspace/repos",
+    "Permissions":         "workspace/permissions",
+    # Account
+    "Account Users":       "account/accountusers",
+    "Account Groups":      "account/accountgroups",
+    "Service Principals":  "account/serviceprincipals",
+    "Workspaces":          "account/workspaces",
+    "Credentials":         "account/credentials",
+    "Storage":             "account/storageconfigurations",
+    "Networks":            "account/networkconfigurations",
+    "Private Access":      "account/privateaccesssettings",
+    "VPC Endpoints":       "account/vpcendpoints",
+    "Encryption Keys":     "account/encryptionkeys",
+    "Log Delivery":        "account/logdelivery",
+    "Budgets":             "account/budgets",
+    "Usage Download":      "account/billableusage",
+    "Account Metastores":  "account/accountmetastores",
+    "Account Access Control": "account/accountaccesscontrol",
+    "Account Settings":    "account/accountsettings",
+}
+
+DOCS_URL_MAP: Dict[str, str] = {
+    # Workspace — Clusters
+    "clusters-list":             "workspace/clusters/list",
+    "clusters-get":              "workspace/clusters/get",
+    "clusters-list-node-types":  "workspace/clusters/listnodetype",
+    "clusters-spark-versions":   "workspace/clusters/sparkversions",
+    "clusters-events":           "workspace/clusters/events",
+    # Workspace — Jobs
+    "jobs-list":                 "workspace/jobs/list",
+    "jobs-get":                  "workspace/jobs/get",
+    "jobs-runs-list":            "workspace/jobs/listruns",
+    "jobs-runs-get":             "workspace/jobs/getrun",
+    # Workspace — Workspace
+    "workspace-list":            "workspace/workspace/list",
+    "workspace-get-status":      "workspace/workspace/getstatus",
+    "workspace-search":          "workspace/workspace/search",
+    # Workspace — DBFS
+    "dbfs-list":                 "workspace/dbfs/list",
+    "dbfs-get-status":           "workspace/dbfs/getstatus",
+    # Workspace — SQL Warehouses
+    "sql-warehouses-list":       "workspace/warehouses/list",
+    "sql-warehouses-get":        "workspace/warehouses/get",
+    "sql-queries-list":          "workspace/queries/list",
+    # Workspace — Unity Catalog
+    "uc-catalogs-list":          "workspace/catalogs/list",
+    "uc-schemas-list":           "workspace/schemas/list",
+    "uc-tables-list":            "workspace/tables/list",
+    "uc-tables-get":             "workspace/tables/get",
+    "uc-volumes-list":           "workspace/volumes/list",
+    "uc-metastore-get":          "workspace/metastores/summary",
+    # Workspace — MLflow
+    "mlflow-experiments-search":        "workspace/experiments/searchexperiments",
+    "mlflow-experiments-get":           "workspace/experiments/getexperiment",
+    "mlflow-runs-search":               "workspace/experiments/searchruns",
+    "mlflow-registered-models-search":  "workspace/modelregistry/searchregisteredmodels",
+    # Workspace — Model Serving
+    "serving-endpoints-list":    "workspace/servingendpoints/list",
+    "serving-endpoints-get":     "workspace/servingendpoints/get",
+    # Workspace — Pipelines (DLT)
+    "pipelines-list":            "workspace/pipelines/listpipelines",
+    "pipelines-get":             "workspace/pipelines/getpipeline",
+    "pipelines-events":          "workspace/pipelines/listpipelineevents",
+    # Workspace — Secrets
+    "secrets-list-scopes":       "workspace/secrets/listscopes",
+    "secrets-list":              "workspace/secrets/listsecrets",
+    # Workspace — Identity (SCIM)
+    "scim-me":                   "workspace/currentuser/me",
+    "scim-users-list":           "workspace/users/list",
+    "scim-groups-list":          "workspace/groups/list",
+    "scim-service-principals-list": "workspace/serviceprincipals/list",
+    # Workspace — Tokens
+    "tokens-list":               "workspace/tokenmanagement/list",
+    # Workspace — Instance Pools
+    "instance-pools-list":       "workspace/instancepools/list",
+    # Workspace — Cluster Policies
+    "policies-list":             "workspace/clusterpolicies/list",
+    # Workspace — Repos
+    "repos-list":                "workspace/repos/list",
+    # Workspace — Permissions
+    "permissions-clusters-get":    "workspace/permissions/getobjectpermissions",
+    "permissions-jobs-get":        "workspace/permissions/getobjectpermissions",
+    "permissions-warehouses-get":  "workspace/permissions/getobjectpermissions",
+    # Account — Users
+    "acct-users-list":           "account/accountusers/list",
+    "acct-users-get":            "account/accountusers/get",
+    # Account — Groups
+    "acct-groups-list":          "account/accountgroups/list",
+    "acct-groups-get":           "account/accountgroups/get",
+    # Account — Service Principals
+    "acct-sp-list":              "account/serviceprincipals/list",
+    "acct-sp-get":               "account/serviceprincipals/get",
+    # Account — Workspaces
+    "acct-workspaces-list":      "account/workspaces/list",
+    "acct-workspaces-get":       "account/workspaces/get",
+    # Account — Credentials
+    "acct-credentials-list":     "account/credentials/list",
+    "acct-credentials-get":      "account/credentials/get",
+    # Account — Storage
+    "acct-storage-list":         "account/storageconfigurations/list",
+    "acct-storage-get":          "account/storageconfigurations/get",
+    # Account — Networks
+    "acct-networks-list":        "account/networkconfigurations/list",
+    "acct-networks-get":         "account/networkconfigurations/get",
+    # Account — Private Access
+    "acct-private-access-list":  "account/privateaccesssettings/list",
+    "acct-private-access-get":   "account/privateaccesssettings/get",
+    # Account — VPC Endpoints
+    "acct-vpc-endpoints-list":   "account/vpcendpoints/list",
+    "acct-vpc-endpoints-get":    "account/vpcendpoints/get",
+    # Account — Encryption Keys
+    "acct-keys-list":            "account/encryptionkeys/list",
+    "acct-keys-get":             "account/encryptionkeys/get",
+    # Account — Log Delivery
+    "acct-log-delivery-list":    "account/logdelivery/list",
+    "acct-log-delivery-get":     "account/logdelivery/get",
+    # Account — Budgets
+    "acct-budgets-list":         "account/budgets/list",
+    "acct-budgets-get":          "account/budgets/get",
+    # Account — Usage Download
+    "acct-usage-download":       "account/billableusage/download",
+    # Account — Metastores
+    "acct-metastores-list":              "account/accountmetastores/list",
+    "acct-metastores-get":               "account/accountmetastores/get",
+    "acct-metastore-assignments-list":   "account/accountmetastoreassignments/list",
+    # Account — Access Control
+    "acct-ruleset-get":          "account/accountaccesscontrol/getruleset",
+    # Account — Settings
+    "acct-settings-personal-compute": "account/cspenablement/get",
+    "acct-settings-ip-access-list":   "account/accountipaccesslists/list",
+}
+
+
+def get_doc_url(endpoint_id: str, cloud: Optional[str] = None) -> Optional[str]:
+    """Return the Databricks API documentation URL for an endpoint.
+
+    Args:
+        endpoint_id: The endpoint ``id`` (e.g. ``"clusters-list"``).
+        cloud: Optional cloud provider (``"aws"``, ``"azure"``, or
+            ``"gcp"``).  When set the URL includes the cloud prefix
+            so the docs site shows the correct cloud variant.
+
+    Returns:
+        The full docs URL, or ``None`` if no mapping exists.
+    """
+    path = DOCS_URL_MAP.get(endpoint_id)
+    if not path:
+        return None
+    prefix = _CLOUD_PREFIXES.get(cloud, "")
+    return f"{_DOCS_BASE}/{prefix}{path}"
+
+
+def get_category_doc_url(category_name: str, cloud: Optional[str] = None) -> Optional[str]:
+    """Return the Databricks API documentation URL for a category.
+
+    Args:
+        category_name: The display name of the category (e.g.
+            ``"Clusters"``).
+        cloud: Optional cloud provider (``"aws"``, ``"azure"``, or
+            ``"gcp"``).
+
+    Returns:
+        The full docs URL, or ``None`` if no mapping exists.
+    """
+    path = CATEGORY_DOCS_MAP.get(category_name)
+    if not path:
+        return None
+    prefix = _CLOUD_PREFIXES.get(cloud, "")
+    return f"{_DOCS_BASE}/{prefix}{path}"
+
+
+def detect_cloud(host: str) -> Optional[str]:
+    """Detect the cloud provider from a Databricks workspace host URL.
+
+    Args:
+        host: The workspace URL (e.g.
+            ``"https://adb-123.azuredatabricks.net"``).
+
+    Returns:
+        ``"aws"``, ``"azure"``, ``"gcp"``, or ``None`` if unknown.
+    """
+    h = (host or "").lower()
+    if "azuredatabricks" in h:
+        return "azure"
+    if ".gcp.databricks.com" in h:
+        return "gcp"
+    if "databricks.com" in h or "cloud.databricks" in h:
+        return "aws"
+    return None
