@@ -1050,6 +1050,12 @@ def build_sidebar() -> html.Div:
             n_clicks=0,
             className="scope-btn",
         ),
+        html.Button(
+            [html.I(className="bi bi-database me-1"), "SQL"],
+            id="scope-sql-btn",
+            n_clicks=0,
+            className="scope-btn",
+        ),
     ], className="scope-switcher")
 
     return html.Div([
@@ -1631,6 +1637,249 @@ _DROPDOWN_OVERLAY = html.Div(
 )
 
 
+# ── SQL Panel builders ────────────────────────────────────────────────────────
+
+def _fetch_warehouses(conn_config):
+    """Fetch the list of SQL warehouses for the warehouse dropdown."""
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return []
+    result = make_api_call("GET", "/api/2.0/sql/warehouses", token, host, timeout=10)
+    if result.get("success"):
+        return result["data"].get("warehouses", [])
+    return []
+
+
+def build_sql_panel(warehouses):
+    """Build the SQL editor form panel.
+
+    Args:
+        warehouses: List of warehouse dicts from the SQL warehouses API.
+
+    Returns:
+        A Dash ``html.Div`` containing the SQL editor layout.
+    """
+    wh_options = [
+        {"label": f"{w['name']}  ({w.get('state', '?')})", "value": w["id"]}
+        for w in warehouses
+    ]
+    # Prefer a RUNNING warehouse, otherwise fall back to the first one
+    running = [w for w in warehouses if w.get("state") == "RUNNING"]
+    if running:
+        default_wh = running[0]["id"]
+    else:
+        default_wh = wh_options[0]["value"] if wh_options else None
+
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-database me-2", style={"color": "var(--accent)"}),
+                html.Span("SQL Statement Execution", className="endpoint-name"),
+                html.A(
+                    html.I(className="bi bi-box-arrow-up-right"),
+                    href="https://docs.databricks.com/api/workspace/statementexecution",
+                    target="_blank", rel="noopener noreferrer",
+                    className="endpoint-doc-link", title="View API docs",
+                ),
+            ], className="d-flex align-items-center"),
+        ], className="endpoint-header"),
+        html.Div("/api/2.0/sql/statements", className="endpoint-path font-mono"),
+        html.Div(
+            "Execute SQL statements against a SQL warehouse and view results inline.",
+            className="endpoint-desc",
+        ),
+        html.Hr(className="divider"),
+        # Warehouse selector
+        html.Div([
+            html.Div([
+                html.Span("warehouse", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div("SQL warehouse to execute the statement on", className="param-desc"),
+            dcc.Dropdown(
+                id="sql-warehouse-select",
+                options=wh_options,
+                value=default_wh,
+                className="sql-warehouse-dropdown",
+                placeholder="Select a warehouse…",
+                clearable=False,
+            ),
+        ], className="param-row"),
+        # Catalog
+        html.Div([
+            html.Div([
+                html.Span("catalog", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Sets the default catalog for unqualified names", className="param-desc"),
+            dbc.Input(
+                id="sql-catalog-input", placeholder="e.g. main",
+                className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        # Schema
+        html.Div([
+            html.Div([
+                html.Span("schema", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Sets the default schema for unqualified names", className="param-desc"),
+            dbc.Input(
+                id="sql-schema-input", placeholder="e.g. default",
+                className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        # SQL statement textarea
+        html.Div([
+            html.Div([
+                html.Span("statement", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            dbc.Textarea(
+                id="sql-textarea",
+                placeholder="SELECT * FROM catalog.schema.table LIMIT 100",
+                className="sql-textarea font-mono",
+                rows=10,
+            ),
+        ], className="param-row"),
+        # Row limit
+        html.Div([
+            html.Div([
+                html.Span("row_limit", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Maximum number of rows to return", className="param-desc"),
+            dbc.Input(
+                id="sql-row-limit", type="number", value=1000,
+                min=1, max=1000000, className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        html.Hr(className="divider"),
+        html.Div([
+            html.Button(
+                [html.I(className="bi bi-play-fill me-2"), "Execute"],
+                id="sql-execute-btn", n_clicks=0, className="execute-btn",
+            ),
+            html.Div([
+                html.I(className="bi bi-clock me-1"),
+                dbc.Input(
+                    id="sql-timeout-input",
+                    type="number",
+                    value=30,
+                    min=1, max=300, step=1,
+                    className="timeout-input font-mono",
+                ),
+                html.Span("s", className="timeout-unit"),
+            ], className="timeout-control", title="Query timeout in seconds"),
+        ], className="execute-row"),
+        html.Div(id="sql-progress-bar-container", className="sql-progress-container"),
+    ], className="endpoint-card")
+
+
+def build_sql_results(result):
+    """Build the SQL results view — table for successful queries, error panel otherwise.
+
+    Args:
+        result: The normalised result dict from :func:`auth.make_api_call`.
+
+    Returns:
+        A Dash component tree for the response container.
+    """
+    data = result.get("data", {})
+    elapsed = result.get("elapsed_ms", 0)
+    status_code = result.get("status_code", 0)
+
+    if not result.get("success"):
+        # API-level error (HTTP 4xx/5xx)
+        if isinstance(data, dict):
+            msg = data.get("message", "") or data.get("error", "") or json.dumps(data, indent=2)
+        else:
+            msg = str(data)
+        return build_error_panel(f"SQL Error ({status_code}): {msg}")
+
+    stmt_status = data.get("status", {})
+    state = stmt_status.get("state", "UNKNOWN")
+    stmt_id = data.get("statement_id", "")
+
+    if state in ("PENDING", "RUNNING"):
+        return html.Div([
+            html.Div([
+                html.I(className="bi bi-hourglass-split me-2"),
+                html.Span(f"Statement {state.lower()}…"),
+            ], className="sql-status-bar sql-status-pending"),
+            html.Div(f"Statement ID: {stmt_id}", className="text-muted small",
+                      style={"padding": "8px 16px"}),
+        ], className="sql-results")
+
+    if state == "FAILED":
+        error = stmt_status.get("error", {})
+        error_msg = error.get("message", "Statement execution failed")
+        return build_error_panel(error_msg)
+
+    if state == "CANCELED":
+        return build_error_panel("Statement was canceled")
+
+    # SUCCEEDED — render results table
+    manifest = data.get("manifest", {})
+    schema_info = manifest.get("schema", {})
+    columns = schema_info.get("columns", [])
+    result_data = data.get("result", {})
+    rows = result_data.get("data_array", [])
+    total_rows = manifest.get("total_row_count", len(rows))
+    truncated = manifest.get("truncated", False)
+
+    # DDL/DML with no result set
+    if not columns and not rows:
+        return html.Div([
+            html.Div([
+                html.I(className="bi bi-check-circle-fill me-2 text-success"),
+                html.Span("Statement executed successfully"),
+                html.Span(f" · {elapsed:,}ms", className="text-muted"),
+            ], className="sql-status-bar"),
+        ], className="sql-results")
+
+    header = html.Thead(html.Tr(
+        [html.Th(c["name"], title=c.get("type_text", c.get("type_name", "")))
+         for c in columns]
+    ))
+    body_rows = []
+    for row in rows:
+        cells = []
+        for cell in row:
+            if cell is None:
+                cells.append(html.Td("NULL", className="sql-null"))
+            else:
+                cells.append(html.Td(str(cell)))
+        body_rows.append(html.Tr(cells))
+    body = html.Tbody(body_rows)
+
+    truncated_el = html.Div(
+        f"Results truncated — showing {len(rows):,} of {total_rows:,} rows",
+        className="sql-truncated-notice",
+    ) if truncated else None
+
+    status_parts = [
+        html.I(className="bi bi-check-circle-fill me-2 text-success"),
+        html.Span(f"{total_rows:,} row{'s' if total_rows != 1 else ''}"),
+        html.Span(f" · {len(columns)} column{'s' if len(columns) != 1 else ''}"),
+        html.Span(f" · {elapsed:,}ms", className="text-muted"),
+    ]
+    if stmt_id:
+        status_parts.append(html.Span(f" · {stmt_id[:12]}…", className="text-muted",
+                                       title=stmt_id))
+
+    children = [html.Div(status_parts, className="sql-status-bar")]
+    if truncated_el:
+        children.append(truncated_el)
+    children.append(
+        html.Div(
+            html.Table([header, body], className="sql-results-table"),
+            className="sql-results-wrapper",
+        )
+    )
+    return html.Div(children, className="sql-results")
+
+
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
 _ALL_ENDPOINTS = TOTAL_ENDPOINTS + TOTAL_ACCOUNT_ENDPOINTS
 _ALL_CATEGORIES = TOTAL_CATEGORIES + TOTAL_ACCOUNT_CATEGORIES
@@ -1672,6 +1921,10 @@ app.layout = html.Div([
     dcc.Store(id="chips-store", data=None),         # written by execute_api_call, read by sp-item callback
     dcc.Store(id="sp-dummy", data=None),            # dummy output for side-panel toggle clientside CB
     dcc.Store(id="curl-dummy", data=None),          # dummy output for curl copy clientside CB
+    dcc.Store(id="sql-trigger", data=None, storage_type="memory"),  # fires server-side SQL execute
+    dcc.Store(id="sql-cleanup-dummy", data=None),     # dummy output for SQL cleanup clientside CB
+    dcc.Store(id="sql-refresh-wh", data=None),        # triggers warehouse status refresh after query
+    dcc.Store(id="sql-wh-options", data=None),        # updated warehouse options from server
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
@@ -1721,16 +1974,18 @@ app.layout = html.Div([
 # 0a. Scope switcher — toggle between Workspace and Account APIs
 app.clientside_callback(
     """
-    function(wsClicks, acctClicks) {
+    function(wsClicks, acctClicks, sqlClicks) {
         var triggered = dash_clientside.callback_context.triggered;
         if (!triggered || !triggered.length) return dash_clientside.no_update;
         var tid = triggered[0].prop_id;
+        if (tid.indexOf("scope-sql") !== -1) return "sql";
         return tid.indexOf("scope-account") !== -1 ? "account" : "workspace";
     }
     """,
     Output("api-scope", "data"),
     Input("scope-workspace-btn", "n_clicks"),
     Input("scope-account-btn", "n_clicks"),
+    Input("scope-sql-btn", "n_clicks"),
     prevent_initial_call=True,
 )
 
@@ -1740,16 +1995,267 @@ app.clientside_callback(
     Output("api-accordion", "children"),
     Output("scope-workspace-btn", "className"),
     Output("scope-account-btn", "className"),
+    Output("scope-sql-btn", "className"),
     Input("api-scope", "data"),
     Input("cloud-provider", "data"),
 )
 def rebuild_sidebar_for_scope(scope, cloud):
     """Callback 0b: Rebuild the accordion items when the API scope or cloud changes."""
+    if scope == "sql":
+        return [], "scope-btn", "scope-btn", "scope-btn scope-btn-active"
     if scope == "account":
         items = _build_accordion_items(ACCOUNT_API_CATALOG, cloud)
-        return items, "scope-btn", "scope-btn scope-btn-active"
+        return items, "scope-btn", "scope-btn scope-btn-active", "scope-btn"
     items = _build_accordion_items(API_CATALOG, cloud)
-    return items, "scope-btn scope-btn-active", "scope-btn"
+    return items, "scope-btn scope-btn-active", "scope-btn", "scope-btn"
+
+
+# 0c. Render SQL editor when SQL scope is selected or connection changes
+@app.callback(
+    Output("endpoint-detail", "children", allow_duplicate=True),
+    Output("endpoint-detail", "className", allow_duplicate=True),
+    Output("response-container", "children", allow_duplicate=True),
+    Input("api-scope", "data"),
+    Input("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def render_sql_on_scope(scope, conn_config):
+    """Callback 0c: Show the SQL editor panel when the SQL scope is activated or profile changes."""
+    if scope != "sql":
+        return no_update, no_update, no_update
+    warehouses = _fetch_warehouses(conn_config)
+    return build_sql_panel(warehouses), "form-panel form-panel-wide", _RESPONSE_EMPTY
+
+
+# 0d. Execute SQL statement (triggered by sql-trigger store, written by clientside 0e)
+#     All form values are passed via the trigger dict to avoid State refs to dynamic components.
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Input("sql-trigger", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def execute_sql_statement(trigger, conn_config):
+    """Callback 0d: Execute a SQL statement via the Statement Execution API."""
+    if not trigger or not isinstance(trigger, dict):
+        return no_update
+
+    warehouse_id = trigger.get("warehouse_id")
+    statement = trigger.get("statement")
+    catalog = trigger.get("catalog")
+    schema = trigger.get("schema")
+    row_limit = trigger.get("row_limit")
+    timeout_val = trigger.get("timeout")
+
+    if not warehouse_id:
+        return build_error_panel("Please select a SQL warehouse.")
+    if not statement or not statement.strip():
+        return build_error_panel("Please enter a SQL statement.")
+
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return build_error_panel("No connection. Configure a connection in the user menu.")
+
+    try:
+        timeout_secs = max(1, min(300, int(timeout_val or 30)))
+    except (ValueError, TypeError):
+        timeout_secs = 30
+
+    # wait_timeout caps at 50s for the sync portion; the HTTP timeout covers the rest
+    wait_timeout = f"{min(timeout_secs, 50)}s"
+
+    body = {
+        "statement": statement.strip(),
+        "warehouse_id": warehouse_id,
+        "wait_timeout": wait_timeout,
+        "on_wait_timeout": "CONTINUE",
+        "disposition": "INLINE",
+        "format": "JSON_ARRAY",
+    }
+    if catalog and catalog.strip():
+        body["catalog"] = catalog.strip()
+    if schema and schema.strip():
+        body["schema"] = schema.strip()
+    if row_limit:
+        try:
+            body["row_limit"] = int(row_limit)
+        except (ValueError, TypeError):
+            pass
+
+    result = make_api_call(
+        method="POST", path="/api/2.0/sql/statements",
+        token=token, host=host, body=body, timeout=timeout_secs + 5,
+    )
+    return build_sql_results(result)
+
+
+# 0e. Install a global click handler that collects SQL form values, shows animation, and
+#     writes to sql-trigger via set_props — avoiding any callback on the dynamic button.
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._sqlClickHandlerInstalled) return window.dash_clientside.no_update;
+        window._sqlClickHandlerInstalled = true;
+
+        function _sqlExecute() {
+            var btn = document.getElementById('sql-execute-btn');
+            if (!btn || btn.disabled) return;
+
+            var getVal = function(id) {
+                var el = document.getElementById(id);
+                return el ? (el.value || '') : '';
+            };
+            /* Read Dash 4 dropdown value from React fiber */
+            var warehouse_id = '';
+            var whEl = document.getElementById('sql-warehouse-select');
+            if (whEl) {
+                var fKey = Object.keys(whEl).find(function(k) { return k.startsWith('__reactFiber$'); });
+                if (fKey) {
+                    try {
+                        var f = whEl[fKey];
+                        for (var i = 0; i < 20 && f; i++) {
+                            if (f.memoizedProps && typeof f.memoizedProps.value === 'string') {
+                                warehouse_id = f.memoizedProps.value;
+                                break;
+                            }
+                            f = f.return;
+                        }
+                    } catch(e2) {}
+                }
+            }
+
+            var statement = getVal('sql-textarea');
+            var timeout_val = getVal('sql-timeout-input');
+            var secs = Math.max(1, Math.min(300, parseInt(timeout_val) || 30));
+
+            /* Show running animation via set_props (not innerHTML — React owns this node) */
+            window.dash_clientside.set_props('response-container', {children:
+                {props: {children: [
+                    {props: {children: [
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'},
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'},
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'}
+                    ], className: 'sql-running-dots'}, type: 'Div', namespace: 'dash_html_components'},
+                    {props: {children: 'Executing query\u2026', className: 'sql-running-text'}, type: 'Div', namespace: 'dash_html_components'}
+                ], className: 'sql-running-indicator'}, type: 'Div', namespace: 'dash_html_components'}
+            });
+
+            /* Progress bar (not managed by React, safe to manipulate directly) */
+            var barWrap = document.getElementById('sql-progress-bar-container');
+            if (barWrap) {
+                barWrap.innerHTML =
+                    '<div class="sql-progress-track">' +
+                    '  <div class="sql-progress-fill" id="sql-progress-fill"></div>' +
+                    '</div>' +
+                    '<div class="sql-progress-label" id="sql-progress-label">' + secs + 's remaining</div>';
+                var fill = document.getElementById('sql-progress-fill');
+                var label = document.getElementById('sql-progress-label');
+                if (fill) {
+                    fill.style.transition = 'none';
+                    fill.style.width = '100%';
+                    fill.offsetWidth;
+                    fill.style.transition = 'width ' + secs + 's linear';
+                    fill.style.width = '0%';
+                }
+                if (window._sqlProgressTimer) clearInterval(window._sqlProgressTimer);
+                var remaining = secs;
+                window._sqlProgressTimer = setInterval(function() {
+                    remaining--;
+                    if (remaining <= 0) {
+                        clearInterval(window._sqlProgressTimer);
+                        if (label) label.textContent = 'timeout reached';
+                        return;
+                    }
+                    if (label) label.textContent = remaining + 's remaining';
+                }, 1000);
+            }
+
+            btn.disabled = true;
+
+            /* Watch response container for changes — clean up when results arrive */
+            if (window._sqlObserver) window._sqlObserver.disconnect();
+            var rc = document.getElementById('response-container');
+            window._sqlObserver = new MutationObserver(function() {
+                var rcNow = document.getElementById('response-container');
+                if (rcNow && !rcNow.querySelector('.sql-running-indicator')) {
+                    if (window._sqlProgressTimer) {
+                        clearInterval(window._sqlProgressTimer);
+                        window._sqlProgressTimer = null;
+                    }
+                    var bw = document.getElementById('sql-progress-bar-container');
+                    if (bw) bw.innerHTML = '';
+                    var b = document.getElementById('sql-execute-btn');
+                    if (b) b.disabled = false;
+                    /* Trigger warehouse status refresh */
+                    window.dash_clientside.set_props('sql-refresh-wh', {data: Date.now()});
+                    window._sqlObserver.disconnect();
+                }
+            });
+            if (rc) rc.observe = window._sqlObserver.observe(rc, {childList: true, subtree: true});
+
+            /* Write to sql-trigger store via Dash set_props */
+            window.dash_clientside.set_props('sql-trigger', {data: {
+                warehouse_id: warehouse_id,
+                statement: statement,
+                catalog: getVal('sql-catalog-input'),
+                schema: getVal('sql-schema-input'),
+                row_limit: getVal('sql-row-limit'),
+                timeout: timeout_val,
+                ts: Date.now()
+            }});
+        }
+
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('#sql-execute-btn')) _sqlExecute();
+        });
+        document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter'
+                && document.activeElement
+                && document.activeElement.closest('#sql-textarea')) {
+                e.preventDefault();
+                _sqlExecute();
+            }
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-cleanup-dummy", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
+)
+
+
+# 0f. Refresh warehouse dropdown options after query execution
+@app.callback(
+    Output("sql-wh-options", "data"),
+    Input("sql-refresh-wh", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def refresh_warehouse_options(trigger, conn_config):
+    """Callback 0f: Re-fetch warehouse list to update status labels in the dropdown."""
+    if not trigger:
+        return no_update
+    warehouses = _fetch_warehouses(conn_config)
+    return [
+        {"label": f"{w['name']}  ({w.get('state', '?')})", "value": w["id"]}
+        for w in warehouses
+    ]
+
+
+# 0g. Apply refreshed warehouse options to the dropdown via set_props
+app.clientside_callback(
+    """
+    function(options) {
+        if (!options) return window.dash_clientside.no_update;
+        window.dash_clientside.set_props('sql-warehouse-select', {options: options});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-cleanup-dummy", "data", allow_duplicate=True),
+    Input("sql-wh-options", "data"),
+    prevent_initial_call=True,
+)
 
 
 # 1. Init: populate topbar on page load or connection change

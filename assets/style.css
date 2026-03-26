@@ -125,7 +125,7 @@ body {
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-/* ── Scope switcher (Workspace / Account) ─────────────────────────────────── */
+/* ── Scope switcher (Workspace / Account / SQL) ──────────────────────────── */
 .scope-switcher {
   display: flex;
   gap: 0;
@@ -133,7 +133,7 @@ body {
   flex-shrink: 0;
 }
 .scope-btn {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,6 +149,8 @@ body {
 }
 .scope-btn:first-child {
   border-radius: 6px 0 0 6px;
+}
+.scope-btn:not(:last-child) {
   border-right: none;
 }
 .scope-btn:last-child {
@@ -163,6 +165,7 @@ body {
   background: rgba(0,212,255,0.08) !important;
   border-color: rgba(0,212,255,0.3) !important;
 }
+#scope-sql-btn { flex: 0.65 1 0; }
 .scope-btn-active + .scope-btn {
   border-left-color: rgba(0,212,255,0.3);
 }
@@ -344,6 +347,7 @@ body {
 }
 .form-panel::-webkit-scrollbar { width: 4px; }
 .form-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+.form-panel-wide { width: 440px; min-width: 380px; }
 
 /* Right: response panel — fills ALL remaining space */
 .response-panel {
@@ -1595,6 +1599,223 @@ body {
   flex: 1;
   border-radius: 2px;
   min-height: 8px;
+}
+
+/* ── SQL Editor ───────────────────────────────────────────────────── */
+.sql-textarea {
+  width: 100% !important;
+  min-height: 180px;
+  resize: vertical;
+  background: var(--bg-void, #050810) !important;
+  color: var(--text-1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-sm) !important;
+  padding: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.5;
+  tab-size: 2;
+}
+.sql-textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.12) !important;
+  outline: none;
+}
+/* Dash 4 dcc.Dropdown — dark theme overrides */
+.sql-warehouse-dropdown.dash-dropdown {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-sm, 4px) !important;
+  color: var(--text-1) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  min-height: 34px !important;
+}
+.sql-warehouse-dropdown.dash-dropdown:hover {
+  border-color: var(--text-3) !important;
+}
+.sql-warehouse-dropdown.dash-dropdown[data-state="open"],
+.sql-warehouse-dropdown.dash-dropdown:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.12) !important;
+}
+.sql-warehouse-dropdown .dash-dropdown-value-item span,
+.sql-warehouse-dropdown .dash-dropdown-trigger {
+  color: var(--text-1) !important;
+}
+.sql-warehouse-dropdown .dash-dropdown-trigger-icon {
+  color: var(--text-3) !important;
+}
+/* Menu popover — content is a sibling of the button inside .dash-dropdown-wrapper,
+   so use :has() to target the wrapper that contains our custom-classed button. */
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-content {
+  background-color: var(--bg-surface, #141a2e) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-sm, 4px) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-search-container {
+  background-color: var(--bg-surface, #141a2e) !important;
+  border-bottom-color: var(--border) !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-search-container input,
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-search {
+  background-color: var(--bg-void, #050810) !important;
+  color: var(--text-1) !important;
+  border-color: var(--border) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-options-list-option,
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-option {
+  color: var(--text-1) !important;
+  background-color: transparent !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-options-list-option:hover,
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-option:hover,
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-dropdown-option[aria-selected="true"] {
+  background-color: var(--bg-hover, rgba(255,255,255,0.055)) !important;
+  color: var(--text-hi) !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-options-list-option-text span {
+  color: inherit !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.dash-dropdown-wrapper:has(.sql-warehouse-dropdown) .dash-options-list-option-checkbox {
+  accent-color: var(--accent, #00d4ff);
+}
+
+/* ── SQL Running Animation ────────────────────────────────────────── */
+.sql-running-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  gap: 16px;
+}
+.sql-running-indicator .sql-running-text {
+  color: var(--text-2);
+  font-size: 14px;
+}
+.sql-running-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sql-running-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #00d4ff);
+  animation: sql-dot-pulse 1.4s ease-in-out infinite;
+}
+.sql-running-dots span:nth-child(2) { animation-delay: 0.2s; }
+.sql-running-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes sql-dot-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ── SQL Progress Bar ─────────────────────────────────────────────── */
+.sql-progress-container {
+  margin-top: 12px;
+  min-height: 0;
+}
+.sql-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-void, #050810);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sql-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent, #00d4ff), #0891b2);
+  border-radius: 2px;
+  width: 100%;
+}
+.sql-progress-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  text-align: right;
+}
+
+/* ── SQL Results ──────────────────────────────────────────────────── */
+.sql-results {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.sql-status-bar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sql-status-pending {
+  color: var(--accent);
+}
+.sql-truncated-notice {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: #f59e0b;
+  background: rgba(245,158,11,0.06);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sql-results-wrapper {
+  flex: 1;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.sql-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.sql-results-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.sql-results-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-2);
+  background: var(--bg-surface, #141a2e);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.sql-results-table td {
+  padding: 6px 12px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sql-results-table tbody tr:hover td {
+  background: var(--bg-hover, rgba(255,255,255,0.03));
+}
+.sql-null {
+  color: var(--text-3) !important;
+  font-style: italic;
 }
 
 /* ── Hide Plotly Cloud button in Dash debug panel ─────────────────── */

@@ -6,7 +6,7 @@ with this module.
 
 Attributes:
     BUILD: Current integer build number.
-    VERSION: Semantic-version string in the form ``v0.1.<BUILD>``.
+    VERSION: Semantic-version string in the form ``v0.3.<BUILD>``.
 """
 
 import os
@@ -32,4 +32,4 @@ def _next_version() -> int:
 
 
 BUILD: int = _next_version()
-VERSION: str = f"v0.2.{BUILD}"
+VERSION: str = f"v0.3.{BUILD}"
