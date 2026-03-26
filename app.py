@@ -1679,7 +1679,7 @@ def build_sql_panel(warehouses):
                     html.I(className="bi bi-box-arrow-up-right"),
                     href="https://docs.databricks.com/api/workspace/statementexecution",
                     target="_blank", rel="noopener noreferrer",
-                    className="endpoint-doc-link", title="View API docs",
+                    className="endpoint-doc-link ms-2", title="View API docs",
                 ),
             ], className="d-flex align-items-center"),
         ], className="endpoint-header"),
