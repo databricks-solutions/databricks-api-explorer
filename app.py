@@ -1371,13 +1371,13 @@ _DEPLOY_MODAL = dbc.Modal([
         html.Pre(
             "# Deploy the latest version from GitHub\n"
             "databricks apps create databricks-api-explorer \\\n"
-            "  --source-url https://github.com/<your-github-org>/DatabricksAPIexplorer \\\n"
+            "  --source-url https://github.com/databricks-solutions/databricks-api-explorer \\\n"
             "  --profile <your-profile>",
             className="deploy-code",
         ),
         html.P([
             "This pulls the source code directly from the ",
-            html.A("GitHub repository", href="https://github.com/<your-github-org>/DatabricksAPIexplorer",
+            html.A("GitHub repository", href="https://github.com/databricks-solutions/databricks-api-explorer",
                     target="_blank", rel="noopener noreferrer", className="about-link"),
             " and deploys it as a Databricks App. "
             "To update to a newer version later, re-run the command with ",
@@ -1405,7 +1405,7 @@ _ABOUT_MODAL = dbc.Modal([
                 html.I(className="bi bi-github me-2"),
                 html.A(
                     "GitHub Repository",
-                    href="https://github.com/<your-github-org>/DatabricksAPIexplorer",
+                    href="https://github.com/databricks-solutions/databricks-api-explorer",
                     target="_blank", rel="noopener noreferrer",
                     className="about-link",
                 ),
@@ -1414,7 +1414,8 @@ _ABOUT_MODAL = dbc.Modal([
                 html.I(className="bi bi-bug me-2"),
                 html.A(
                     "Contact",
-                    href="https://github.com/<your-github-org>/DatabricksAPIexplorer/issues",
+                    href="https://github.com/databricks-solutions/databricks-api-explorer/issues",
+                    target="_blank", rel="noopener noreferrer",
                     className="about-link",
                 ),
             ], className="about-row mb-2"),
