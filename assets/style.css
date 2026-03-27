@@ -1003,11 +1003,14 @@ body {
 /* ── Deploy Modal ────────────────────────────────────────────────── */
 .deploy-modal .modal-content {
   background: var(--card-bg, #1a1d23);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: var(--text-primary, #e4e6eb);
+  border: 1px solid var(--border);
+  color: var(--text-1, #e4e6eb);
 }
 .deploy-modal .modal-header {
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--border);
+}
+.deploy-modal .modal-title {
+  color: var(--text-hi);
 }
 .deploy-modal .btn-close,
 .settings-modal .btn-close {
@@ -1026,7 +1029,7 @@ body {
   position: absolute;
   top: 50%; left: 50%;
   width: 18px; height: 2px;
-  background: #f8fafc;
+  background: var(--text-hi, #f8fafc);
   border-radius: 1px;
 }
 .deploy-modal .btn-close::before,
@@ -1041,12 +1044,12 @@ body {
   margin-bottom: 0.5rem;
 }
 .deploy-code {
-  background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.08);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px 14px;
   font-size: 12px;
-  color: #a8d8a8;
+  color: var(--text-1);
   overflow-x: auto;
   white-space: pre;
   margin-bottom: 12px;
@@ -1054,7 +1057,7 @@ body {
 .deploy-option-title {
   font-size: 13px;
   margin-bottom: 6px;
-  color: var(--text-primary, #e4e6eb);
+  color: var(--text-1, #e4e6eb);
 }
 .deploy-option-label {
   background: rgba(127,75,196,0.15);
@@ -1460,11 +1463,14 @@ body {
 /* ── Settings Modal ──────────────────────────────────────────────── */
 .settings-modal .modal-content {
   background: var(--card-bg, #1a1d23);
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--border);
   color: var(--text-1, #e4e6eb);
 }
 .settings-modal .modal-header {
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--border);
+}
+.settings-modal .modal-title {
+  color: var(--text-hi);
 }
 
 .settings-group {

@@ -2926,6 +2926,39 @@ def select_endpoint(n_clicks_list, btn_ids):
     return endpoint
 
 
+# 8a. Auto-select the first endpoint when a category header is clicked
+@app.callback(
+    Output("selected-endpoint", "data", allow_duplicate=True),
+    Input("api-accordion", "active_item"),
+    State("api-scope", "data"),
+    State("cloud-provider", "data"),
+    State("selected-endpoint", "data"),
+    prevent_initial_call=True,
+)
+def auto_select_on_accordion_open(active_item, scope, cloud, current_endpoint):
+    """Callback 8a: Select the first endpoint when a category accordion opens."""
+    if not active_item:
+        return no_update
+    # Extract the category index from "item-N"
+    try:
+        cat_idx = int(active_item.split("-")[1])
+    except (IndexError, ValueError):
+        return no_update
+    catalog = ACCOUNT_API_CATALOG if scope == "account" else API_CATALOG
+    cat_keys = list(catalog.keys())
+    if cat_idx >= len(cat_keys):
+        return no_update
+    cat_name = cat_keys[cat_idx]
+    endpoints = catalog[cat_name]["endpoints"]
+    if not endpoints:
+        return no_update
+    # If the currently selected endpoint is already in this category, don't change
+    if current_endpoint and current_endpoint.get("category") == cat_name:
+        return no_update
+    first_ep = endpoints[0]
+    return get_endpoint_by_id(first_ep["id"])
+
+
 # 8b. Sync sidebar button highlight + accordion section whenever selected-endpoint changes
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "className"),
