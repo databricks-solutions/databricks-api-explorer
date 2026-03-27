@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import ALL, Input, Output, State, dcc, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from flask import request as flask_request
 
 from api_catalog import (
@@ -1651,6 +1651,94 @@ def _fetch_warehouses(conn_config):
     return []
 
 
+def _sql_query_simple(conn_config, statement):
+    """Run a quick SQL query and return the list of rows (each row is a list)."""
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return []
+    # Find a running warehouse for metadata queries
+    warehouses = _fetch_warehouses(conn_config)
+    running = [w for w in warehouses if w.get("state") == "RUNNING"]
+    wh_id = running[0]["id"] if running else (warehouses[0]["id"] if warehouses else None)
+    if not wh_id:
+        return []
+    result = make_api_call(
+        method="POST", path="/api/2.0/sql/statements",
+        token=token, host=host, timeout=15,
+        body={
+            "statement": statement,
+            "warehouse_id": wh_id,
+            "wait_timeout": "10s",
+            "on_wait_timeout": "CANCEL",
+            "disposition": "INLINE",
+            "format": "JSON_ARRAY",
+            "row_limit": 5000,
+        },
+    )
+    if result.get("success"):
+        data = result["data"]
+        if data.get("status", {}).get("state") == "SUCCEEDED":
+            chunks = data.get("result", {}).get("data_array") or []
+            return chunks
+    return []
+
+
+_BROWSER_LOADING = [html.Div(className="sql-browser-spinner")]
+
+
+def _browser_list_items(names, item_type):
+    """Build clickable list items for the SQL catalog browser."""
+    if not names:
+        return [html.Div("—", className="sql-browser-empty")]
+    return [
+        html.Button(
+            n, id={"type": f"sql-browse-{item_type}", "name": n},
+            className="sql-browser-item", n_clicks=0,
+        )
+        for n in names
+    ]
+
+
+def build_sql_catalog_browser(catalogs=None):
+    """Build the sidebar catalog/schema/table browser for SQL mode."""
+    cat_content = _browser_list_items(catalogs, "cat") if catalogs else list(_BROWSER_LOADING)
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-archive me-1"),
+                "Catalog",
+            ], className="sql-browser-label"),
+            html.Div(
+                cat_content,
+                id="sql-browser-catalog-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-folder me-1"),
+                "Schema",
+            ], className="sql-browser-label"),
+            html.Div(
+                _browser_list_items([], "schema"),
+                id="sql-browser-schema-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-table me-1"),
+                "Table",
+            ], className="sql-browser-label"),
+            html.Div(
+                _browser_list_items([], "table"),
+                id="sql-browser-table-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+    ], className="sql-catalog-browser")
+
+
 def build_sql_panel(warehouses):
     """Build the SQL editor form panel.
 
@@ -1926,6 +2014,10 @@ app.layout = html.Div([
     dcc.Store(id="sql-cleanup-dummy", data=None),     # dummy output for SQL cleanup clientside CB
     dcc.Store(id="sql-refresh-wh", data=None),        # triggers warehouse status refresh after query
     dcc.Store(id="sql-wh-options", data=None),        # updated warehouse options from server
+    dcc.Store(id="sql-browser-spinner-dummy", data=None),  # dummy for spinner installer CB
+    dcc.Store(id="sql-cat-selected", data=None),      # selected catalog name for SQL browser
+    dcc.Store(id="sql-schema-selected", data=None),   # selected schema name for SQL browser
+    dcc.Store(id="sql-table-selected", data=None),    # selected table for SQL browser → populates form
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
@@ -1999,16 +2091,35 @@ app.clientside_callback(
     Output("scope-sql-btn", "className"),
     Input("api-scope", "data"),
     Input("cloud-provider", "data"),
+    State("conn-config", "data"),
 )
-def rebuild_sidebar_for_scope(scope, cloud):
+def rebuild_sidebar_for_scope(scope, cloud, conn_config):
     """Callback 0b: Rebuild the accordion items when the API scope or cloud changes."""
     if scope == "sql":
-        return [], "scope-btn", "scope-btn", "scope-btn scope-btn-active"
+        browser = build_sql_catalog_browser()
+        return [browser], "scope-btn", "scope-btn", "scope-btn scope-btn-active"
     if scope == "account":
         items = _build_accordion_items(ACCOUNT_API_CATALOG, cloud)
         return items, "scope-btn", "scope-btn scope-btn-active", "scope-btn"
     items = _build_accordion_items(API_CATALOG, cloud)
     return items, "scope-btn scope-btn-active", "scope-btn", "scope-btn"
+
+
+# 0b2. Fetch catalogs asynchronously after the SQL browser skeleton is rendered
+@app.callback(
+    Output("sql-browser-catalog-list", "children", allow_duplicate=True),
+    Input("api-accordion", "children"),
+    State("api-scope", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def fetch_sql_catalogs(_, scope, conn_config):
+    """Callback 0b2: Populate the catalog list after SQL scope is activated."""
+    if scope != "sql":
+        return no_update
+    rows = _sql_query_simple(conn_config, "SHOW CATALOGS")
+    catalogs = sorted(r[0] for r in rows if r)
+    return _browser_list_items(catalogs, "cat")
 
 
 # 0c. Render SQL editor when SQL scope is selected or connection changes
@@ -2256,6 +2367,162 @@ app.clientside_callback(
     Output("sql-cleanup-dummy", "data", allow_duplicate=True),
     Input("sql-wh-options", "data"),
     prevent_initial_call=True,
+)
+
+
+# 0h. SQL browser: catalog clicked → fetch schemas, highlight, reset table list
+@app.callback(
+    Output("sql-browser-catalog-list", "children"),
+    Output("sql-browser-schema-list", "children"),
+    Output("sql-browser-table-list", "children"),
+    Output("sql-cat-selected", "data"),
+    Input({"type": "sql-browse-cat", "name": ALL}, "n_clicks"),
+    State({"type": "sql-browse-cat", "name": ALL}, "id"),
+    State("sql-browser-catalog-list", "children"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def sql_browser_catalog_clicked(n_clicks_list, btn_ids, current_items, conn_config):
+    """Callback 0h: Fetch schemas when a catalog is clicked in the SQL browser."""
+    if not ctx.triggered or not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    # Highlight the clicked catalog
+    cat_items = []
+    for item in (current_items or []):
+        props = item.get("props", {}) if isinstance(item, dict) else {}
+        bid = props.get("id", {})
+        name = bid.get("name", "") if isinstance(bid, dict) else ""
+        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
+        cat_items.append(html.Button(
+            name, id={"type": "sql-browse-cat", "name": name},
+            className=cls, n_clicks=0,
+        ))
+    # Fetch schemas
+    rows = _sql_query_simple(conn_config, f"SHOW SCHEMAS IN `{clicked_name}`")
+    schemas = sorted(r[0] for r in rows if r)
+    schema_items = _browser_list_items(schemas, "schema")
+    table_items = _browser_list_items([], "table")
+    return cat_items, schema_items, table_items, clicked_name
+
+
+# 0i. SQL browser: schema clicked → fetch tables, highlight
+@app.callback(
+    Output("sql-browser-schema-list", "children", allow_duplicate=True),
+    Output("sql-browser-table-list", "children", allow_duplicate=True),
+    Output("sql-schema-selected", "data"),
+    Input({"type": "sql-browse-schema", "name": ALL}, "n_clicks"),
+    State({"type": "sql-browse-schema", "name": ALL}, "id"),
+    State("sql-browser-schema-list", "children"),
+    State("sql-cat-selected", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def sql_browser_schema_clicked(n_clicks_list, btn_ids, current_items, catalog, conn_config):
+    """Callback 0i: Fetch tables when a schema is clicked in the SQL browser."""
+    if not ctx.triggered or not any(n_clicks_list) or not catalog:
+        return no_update, no_update, no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    # Highlight the clicked schema
+    schema_items = []
+    for item in (current_items or []):
+        props = item.get("props", {}) if isinstance(item, dict) else {}
+        bid = props.get("id", {})
+        name = bid.get("name", "") if isinstance(bid, dict) else ""
+        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
+        schema_items.append(html.Button(
+            name, id={"type": "sql-browse-schema", "name": name},
+            className=cls, n_clicks=0,
+        ))
+    # Fetch tables
+    rows = _sql_query_simple(conn_config, f"SHOW TABLES IN `{catalog}`.`{clicked_name}`")
+    tables = sorted(r[1] for r in rows if r and len(r) > 1)
+    table_items = _browser_list_items(tables, "table")
+    return schema_items, table_items, clicked_name
+
+
+# 0j. SQL browser: table clicked → populate SQL form fields + SELECT * query
+@app.callback(
+    Output("sql-browser-table-list", "children", allow_duplicate=True),
+    Output("sql-table-selected", "data"),
+    Input({"type": "sql-browse-table", "name": ALL}, "n_clicks"),
+    State({"type": "sql-browse-table", "name": ALL}, "id"),
+    State("sql-browser-table-list", "children"),
+    State("sql-cat-selected", "data"),
+    State("sql-schema-selected", "data"),
+    prevent_initial_call=True,
+)
+def sql_browser_table_clicked(n_clicks_list, btn_ids, current_items, catalog, schema):
+    """Callback 0j: Populate SQL form when a table is clicked in the SQL browser."""
+    if not ctx.triggered or not any(n_clicks_list) or not catalog or not schema:
+        return no_update, no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    # Highlight the clicked table
+    table_items = []
+    for item in (current_items or []):
+        props = item.get("props", {}) if isinstance(item, dict) else {}
+        bid = props.get("id", {})
+        name = bid.get("name", "") if isinstance(bid, dict) else ""
+        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
+        table_items.append(html.Button(
+            name, id={"type": "sql-browse-table", "name": name},
+            className=cls, n_clicks=0,
+        ))
+    return table_items, clicked_name
+
+
+# 0k. Populate SQL form fields when catalog/schema/table selection changes (clientside)
+app.clientside_callback(
+    """
+    function(catalog, schema, table) {
+        if (catalog) {
+            window.dash_clientside.set_props('sql-catalog-input', {value: catalog});
+        }
+        if (schema) {
+            window.dash_clientside.set_props('sql-schema-input', {value: schema});
+        }
+        if (table && schema && catalog) {
+            var fqn = '`' + catalog + '`.`' + schema + '`.`' + table + '`';
+            var stmt = 'SELECT * FROM ' + fqn + ' LIMIT 100';
+            window.dash_clientside.set_props('sql-textarea', {value: stmt});
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-cleanup-dummy", "data", allow_duplicate=True),
+    Input("sql-cat-selected", "data"),
+    Input("sql-schema-selected", "data"),
+    Input("sql-table-selected", "data"),
+    prevent_initial_call=True,
+)
+
+
+# 0l. Show loading spinner immediately when a catalog/schema item is clicked
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._sqlBrowserSpinnerInstalled) return window.dash_clientside.no_update;
+        window._sqlBrowserSpinnerInstalled = true;
+        var spinner = {props: {className: 'sql-browser-spinner'}, type: 'Div', namespace: 'dash_html_components'};
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.sql-browser-item');
+            if (!btn) return;
+            var list = btn.closest('.sql-browser-list');
+            if (!list) return;
+            var id = list.id;
+            if (id === 'sql-browser-catalog-list') {
+                window.dash_clientside.set_props('sql-browser-schema-list', {children: [spinner]});
+                window.dash_clientside.set_props('sql-browser-table-list', {children: [{props: {children: '\u2014', className: 'sql-browser-empty'}, type: 'Div', namespace: 'dash_html_components'}]});
+            } else if (id === 'sql-browser-schema-list') {
+                window.dash_clientside.set_props('sql-browser-table-list', {children: [spinner]});
+            }
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-browser-spinner-dummy", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
 )
 
 
@@ -2914,7 +3181,6 @@ def reauth(n_clicks, profile):
 )
 def select_endpoint(n_clicks_list, btn_ids):
     """Callback 8: Write the clicked endpoint to ``selected-endpoint`` store."""
-    from dash import callback_context as ctx
     if not ctx.triggered:
         return no_update
     try:
