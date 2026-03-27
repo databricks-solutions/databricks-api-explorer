@@ -6,7 +6,7 @@ An interactive REST API explorer for Databricks — covering both **Workspace** 
 
 ## Screenshot
 
-![Databricks API Explorer](assets/screenshot.png)
+![Databricks API Explorer](assets/DatabricksAPIexplorer%20Screenshot%200.3.816%20large.png)
 
 ---
 
@@ -330,5 +330,5 @@ DatabricksAPIexplorer/
 └── assets/
     ├── style.css                 # Dark glassmorphism CSS theme
     ├── devtools_patch.js         # Debug bar patches + resizable side panel
-    └── screenshot.png            # App screenshot
+    └── DatabricksAPIexplorer Screenshot 0.3.816 large.png  # App screenshot
 ```
