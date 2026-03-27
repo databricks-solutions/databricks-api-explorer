@@ -2014,6 +2014,7 @@ app.layout = html.Div([
     dcc.Store(id="sql-cleanup-dummy", data=None),     # dummy output for SQL cleanup clientside CB
     dcc.Store(id="sql-refresh-wh", data=None),        # triggers warehouse status refresh after query
     dcc.Store(id="sql-wh-options", data=None),        # updated warehouse options from server
+    dcc.Store(id="sql-wh-value", data=None),               # mirrors warehouse dropdown value
     dcc.Store(id="sql-browser-spinner-dummy", data=None),  # dummy for spinner installer CB
     dcc.Store(id="sql-cat-selected", data=None),      # selected catalog name for SQL browser
     dcc.Store(id="sql-schema-selected", data=None),   # selected schema name for SQL browser
@@ -2217,22 +2218,32 @@ app.clientside_callback(
                 var el = document.getElementById(id);
                 return el ? (el.value || '') : '';
             };
-            /* Read Dash 4 dropdown value from React fiber */
+            /* Read warehouse value from the synced store (written by change observer) */
             var warehouse_id = '';
-            var whEl = document.getElementById('sql-warehouse-select');
-            if (whEl) {
-                var fKey = Object.keys(whEl).find(function(k) { return k.startsWith('__reactFiber$'); });
-                if (fKey) {
-                    try {
-                        var f = whEl[fKey];
-                        for (var i = 0; i < 20 && f; i++) {
-                            if (f.memoizedProps && typeof f.memoizedProps.value === 'string') {
-                                warehouse_id = f.memoizedProps.value;
-                                break;
+            try {
+                var whStore = document.getElementById('sql-wh-value');
+                if (whStore) {
+                    var raw = whStore.textContent || '';
+                    if (raw && raw !== 'null') warehouse_id = JSON.parse(raw);
+                }
+            } catch(e2) {}
+            /* Fallback: React fiber walk */
+            if (!warehouse_id) {
+                var whEl = document.getElementById('sql-warehouse-select');
+                if (whEl) {
+                    var fKey = Object.keys(whEl).find(function(k) { return k.startsWith('__reactFiber$'); });
+                    if (fKey) {
+                        try {
+                            var f = whEl[fKey];
+                            for (var i = 0; i < 30 && f; i++) {
+                                var mp = f.memoizedProps;
+                                if (mp && typeof mp.value === 'string' && mp.value) {
+                                    warehouse_id = mp.value; break;
+                                }
+                                f = f.return;
                             }
-                            f = f.return;
-                        }
-                    } catch(e2) {}
+                        } catch(e3) {}
+                    }
                 }
             }
 
@@ -2328,6 +2339,38 @@ app.clientside_callback(
                 _sqlExecute();
             }
         });
+
+        /* Sync warehouse dropdown value to sql-wh-value store via MutationObserver.
+           Watches for clicks on dropdown options and reads the value from React fiber. */
+        function _syncWhValue() {
+            var whEl = document.getElementById('sql-warehouse-select');
+            if (!whEl) return;
+            var fKey = Object.keys(whEl).find(function(k) { return k.startsWith('__reactFiber$'); });
+            if (!fKey) return;
+            try {
+                var f = whEl[fKey];
+                for (var i = 0; i < 30 && f; i++) {
+                    var mp = f.memoizedProps;
+                    if (mp && typeof mp.value === 'string' && mp.value) {
+                        window.dash_clientside.set_props('sql-wh-value', {data: mp.value});
+                        return;
+                    }
+                    f = f.return;
+                }
+            } catch(e) {}
+        }
+        /* Observe clicks on dropdown options to sync value */
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('.dash-dropdown-wrapper:has(#sql-warehouse-select)')) {
+                setTimeout(_syncWhValue, 100);
+            }
+        });
+        /* Also sync when the dropdown first appears */
+        var _whCheckInterval = setInterval(function() {
+            var whEl = document.getElementById('sql-warehouse-select');
+            if (whEl) { clearInterval(_whCheckInterval); _syncWhValue(); }
+        }, 500);
+
         return window.dash_clientside.no_update;
     }
     """,

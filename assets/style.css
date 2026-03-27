@@ -1651,8 +1651,11 @@ body {
   box-shadow: 0 0 0 2px rgba(0,212,255,0.12) !important;
 }
 .sql-warehouse-dropdown .dash-dropdown-value-item span,
-.sql-warehouse-dropdown .dash-dropdown-trigger {
+.sql-warehouse-dropdown .dash-dropdown-trigger,
+.sql-warehouse-dropdown * {
   color: var(--text-1) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
 }
 .sql-warehouse-dropdown .dash-dropdown-trigger-icon {
   color: var(--text-3) !important;
