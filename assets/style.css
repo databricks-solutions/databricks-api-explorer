@@ -1744,7 +1744,8 @@ body {
   padding: 2px 6px 4px;
 }
 .sql-browser-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   background: none;
   border: none;
@@ -1754,10 +1755,14 @@ body {
   text-align: left;
   cursor: pointer;
   border-radius: var(--r-sm, 4px);
+  transition: background 0.1s, color 0.1s;
+}
+.sql-browser-item-name {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.1s, color 0.1s;
 }
 .sql-browser-item:hover {
   background: var(--bg-hover);
@@ -1770,6 +1775,32 @@ body {
 }
 .sql-browser-item-active:hover {
   background: var(--bg-active);
+  color: var(--accent);
+}
+.sql-browser-table-row {
+  display: flex;
+  align-items: center;
+}
+.sql-browser-table-row .sql-browser-item {
+  flex: 1;
+  min-width: 0;
+}
+.sql-browser-describe-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+.sql-browser-table-row:hover .sql-browser-describe-btn {
+  opacity: 1;
+}
+.sql-browser-describe-btn:hover {
   color: var(--accent);
 }
 .sql-browser-empty {

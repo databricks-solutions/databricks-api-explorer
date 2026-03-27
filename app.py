@@ -1686,17 +1686,35 @@ def _sql_query_simple(conn_config, statement):
 _BROWSER_LOADING = [html.Div(className="sql-browser-spinner")]
 
 
-def _browser_list_items(names, item_type):
+def _browser_list_items(names, item_type, active=None):
     """Build clickable list items for the SQL catalog browser."""
     if not names:
         return [html.Div("—", className="sql-browser-empty")]
-    return [
-        html.Button(
-            n, id={"type": f"sql-browse-{item_type}", "name": n},
-            className="sql-browser-item", n_clicks=0,
-        )
-        for n in names
-    ]
+    items = []
+    for n in names:
+        cls = "sql-browser-item sql-browser-item-active" if n == active else "sql-browser-item"
+        if item_type == "table":
+            items.append(html.Div([
+                html.Div(
+                    html.Span(n, className="sql-browser-item-name"),
+                    id={"type": "sql-browse-table", "name": n},
+                    className=cls, n_clicks=0,
+                ),
+                html.Button(
+                    html.I(className="bi bi-info-circle"),
+                    id={"type": "sql-browse-describe", "name": n},
+                    className="sql-browser-describe-btn",
+                    n_clicks=0,
+                    title="DESCRIBE TABLE EXTENDED",
+                ),
+            ], className="sql-browser-table-row"))
+        else:
+            items.append(html.Div(
+                html.Span(n, className="sql-browser-item-name"),
+                id={"type": f"sql-browse-{item_type}", "name": n},
+                className=cls, n_clicks=0,
+            ))
+    return items
 
 
 def build_sql_catalog_browser(catalogs=None):
@@ -2390,17 +2408,9 @@ def sql_browser_catalog_clicked(n_clicks_list, btn_ids, current_items, conn_conf
     if not ctx.triggered or not any(n_clicks_list):
         return no_update, no_update, no_update, no_update
     clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
-    # Highlight the clicked catalog
-    cat_items = []
-    for item in (current_items or []):
-        props = item.get("props", {}) if isinstance(item, dict) else {}
-        bid = props.get("id", {})
-        name = bid.get("name", "") if isinstance(bid, dict) else ""
-        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
-        cat_items.append(html.Button(
-            name, id={"type": "sql-browse-cat", "name": name},
-            className=cls, n_clicks=0,
-        ))
+    # Rebuild catalog list with highlight
+    names = [b["name"] for b in btn_ids]
+    cat_items = _browser_list_items(names, "cat", active=clicked_name)
     # Fetch schemas
     rows = _sql_query_simple(conn_config, f"SHOW SCHEMAS IN `{clicked_name}`")
     schemas = sorted(r[0] for r in rows if r)
@@ -2426,17 +2436,9 @@ def sql_browser_schema_clicked(n_clicks_list, btn_ids, current_items, catalog, c
     if not ctx.triggered or not any(n_clicks_list) or not catalog:
         return no_update, no_update, no_update
     clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
-    # Highlight the clicked schema
-    schema_items = []
-    for item in (current_items or []):
-        props = item.get("props", {}) if isinstance(item, dict) else {}
-        bid = props.get("id", {})
-        name = bid.get("name", "") if isinstance(bid, dict) else ""
-        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
-        schema_items.append(html.Button(
-            name, id={"type": "sql-browse-schema", "name": name},
-            className=cls, n_clicks=0,
-        ))
+    # Rebuild schema list with highlight
+    names = [b["name"] for b in btn_ids]
+    schema_items = _browser_list_items(names, "schema", active=clicked_name)
     # Fetch tables
     rows = _sql_query_simple(conn_config, f"SHOW TABLES IN `{catalog}`.`{clicked_name}`")
     tables = sorted(r[1] for r in rows if r and len(r) > 1)
@@ -2460,17 +2462,9 @@ def sql_browser_table_clicked(n_clicks_list, btn_ids, current_items, catalog, sc
     if not ctx.triggered or not any(n_clicks_list) or not catalog or not schema:
         return no_update, no_update
     clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
-    # Highlight the clicked table
-    table_items = []
-    for item in (current_items or []):
-        props = item.get("props", {}) if isinstance(item, dict) else {}
-        bid = props.get("id", {})
-        name = bid.get("name", "") if isinstance(bid, dict) else ""
-        cls = "sql-browser-item sql-browser-item-active" if name == clicked_name else "sql-browser-item"
-        table_items.append(html.Button(
-            name, id={"type": "sql-browse-table", "name": name},
-            className=cls, n_clicks=0,
-        ))
+    # Rebuild table list with highlight
+    names = [b["name"] for b in btn_ids]
+    table_items = _browser_list_items(names, "table", active=clicked_name)
     return table_items, clicked_name
 
 
@@ -2500,6 +2494,41 @@ app.clientside_callback(
 )
 
 
+# 0k2. Describe table button → populate statement and auto-execute
+app.clientside_callback(
+    """
+    function() {
+        var triggered = dash_clientside.callback_context.triggered;
+        if (!triggered || !triggered.length) return window.dash_clientside.no_update;
+        /* Skip if no actual click (n_clicks is 0 when components first appear) */
+        if (!triggered[0].value) return window.dash_clientside.no_update;
+        var raw = triggered[0].prop_id;
+        try {
+            var parsed = JSON.parse(raw.split('.')[0]);
+            var table = parsed.name;
+        } catch(e) { return window.dash_clientside.no_update; }
+        var catEl = document.getElementById('sql-catalog-input');
+        var schEl = document.getElementById('sql-schema-input');
+        var catalog = catEl ? catEl.value : '';
+        var schema = schEl ? schEl.value : '';
+        if (!catalog || !schema || !table) return window.dash_clientside.no_update;
+        var fqn = '`' + catalog + '`.`' + schema + '`.`' + table + '`';
+        var stmt = 'DESCRIBE TABLE EXTENDED ' + fqn;
+        window.dash_clientside.set_props('sql-textarea', {value: stmt});
+        /* Auto-execute after a short delay to let the textarea update */
+        setTimeout(function() {
+            var btn = document.getElementById('sql-execute-btn');
+            if (btn) btn.click();
+        }, 100);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-browser-spinner-dummy", "data", allow_duplicate=True),
+    Input({"type": "sql-browse-describe", "name": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
 # 0l. Show loading spinner immediately when a catalog/schema item is clicked
 app.clientside_callback(
     """
@@ -2508,6 +2537,7 @@ app.clientside_callback(
         window._sqlBrowserSpinnerInstalled = true;
         var spinner = {props: {className: 'sql-browser-spinner'}, type: 'Div', namespace: 'dash_html_components'};
         document.addEventListener('click', function(e) {
+            if (e.target.closest('.sql-browser-describe-btn')) return;
             var btn = e.target.closest('.sql-browser-item');
             if (!btn) return;
             var list = btn.closest('.sql-browser-list');
