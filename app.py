@@ -310,6 +310,12 @@ _TREE_CSS = (
     "mark.sh{background:var(--t-mark);color:#fff;border-radius:2px;padding:0 1px;}"
     "mark.sh.cur{background:var(--t-mark-cur);color:#050810;}"
     ".sep{width:1px;height:16px;background:var(--t-scroll);flex-shrink:0;}"
+    ".sql-link-wrap{display:inline;}"
+    ".sql-link-btn{display:inline-block;margin-left:8px;cursor:pointer;font-size:10px;"
+    "background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.25);border-radius:10px;"
+    "padding:0 7px;color:var(--t-accent);vertical-align:middle;line-height:1.6;"
+    "transition:all .15s;}"
+    ".sql-link-btn:hover{background:rgba(0,212,255,.22);border-color:rgba(0,212,255,.5);}"
 )
 
 # Raw string — no Python escape processing; JS unicode escapes work as-is in browser.
@@ -317,6 +323,8 @@ _TREE_JS = r"""
 var currentDepth=INITIAL_DEPTH;
 function mkEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
 function idLink(cls,display,gid,par,val,ext){var e=mkEl('span','id-link '+cls,display);e.dataset.gid=gid;e.dataset.par=par;e.dataset.val=val;if(ext)e.dataset.ext=JSON.stringify(ext);e.onclick=function(){var msg={type:'id-link',gid:e.dataset.gid,par:e.dataset.par,val:e.dataset.val};if(e.dataset.ext)msg.ext=JSON.parse(e.dataset.ext);window.parent.postMessage(msg,'*');};return e;}
+function sqlLink(cls,display,fullName){var w=mkEl('span','sql-link-wrap');var v=mkEl('span',cls,display);w.appendChild(v);var btn=mkEl('span','sql-link-btn',String.fromCharCode(0x25b6)+' SELECT *');btn.title='SELECT * FROM '+fullName;btn.onclick=function(){window.parent.postMessage({type:'sql-link',full_name:fullName},'*');};w.appendChild(btn);return w;}
+function sqlColLink(cls,display,colName,fullName){var w=mkEl('span','sql-link-wrap');var v=mkEl('span',cls,display);w.appendChild(v);var btn=mkEl('span','sql-link-btn',String.fromCharCode(0x25b6)+' SELECT');btn.title='SELECT '+colName+' FROM '+fullName;btn.onclick=function(){window.parent.postMessage({type:'sql-link',full_name:fullName,column:colName},'*');};w.appendChild(btn);return w;}
 var TS_KEYS=/time$|_at$|timestamp$|_date$|expiration$|expired$|created$|updated$|deleted$|started$|finished$|modified$|deadline$|_ts$|start_time|end_time|creation_time|last_active_time|expiry_time/i;
 function isEpoch(val,pKey){if(typeof val!=='number'||!pKey||!TS_KEYS.test(pKey))return false;if(val>1e12&&val<2e13)return val;if(val>1e9&&val<2e10)return val*1000;return false;}
 function getSettingsTz(){try{return window.parent.document.documentElement.dataset.tz||'Europe/Berlin';}catch(e){return 'Europe/Berlin';}}
@@ -326,7 +334,7 @@ function renderValue(val,pKey,depth){
   var t=typeof val;
   if(t==='boolean')return mkEl('span','jb',String(val));
   if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
-  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];return c2?idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext):mkEl('span','jv','"'+val+'"');}
+  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];if(c2)return idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext);var sf=pKey&&SQL_FIELDS[pKey];if(sf){if(sf.table_name&&val!==sf.table_name)return sqlColLink('jv','"'+val+'"',val,sf.full_name);return sqlLink('jv','"'+val+'"',sf.full_name);}return mkEl('span','jv','"'+val+'"');}
   if(Array.isArray(val))return renderArray(val,depth);
   if(t==='object')return renderObject(val,depth);
   return mkEl('span','jbn',String(val));
@@ -428,7 +436,11 @@ document.addEventListener('DOMContentLoaded',function(){
 """
 
 
-def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
+def _build_json_tree_html(
+    data: Any,
+    chips: Optional[List[Dict]] = None,
+    sql_fields: Optional[List[str]] = None,
+) -> str:
     """Build a self-contained HTML document with a collapsible JSON tree.
 
     The tree is rendered entirely in vanilla JavaScript (no React /
@@ -439,11 +451,17 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
     inline links that post a ``window.parent.postMessage`` event
     consumed by callback 16 (``handle_iframe_link_click``).
 
+    If *sql_fields* are provided, values of those JSON keys get a
+    clickable play icon that posts a ``sql-link`` message to navigate
+    to the SQL editor with ``SELECT * FROM <value>``.
+
     Args:
         data: Any JSON-serialisable value to render.
         chips: Optional list of chip dicts (from
             :func:`api_catalog.extract_chips`) used to build the
             ``LOOKUP`` table that drives inline ID links.
+        sql_fields: Optional list of JSON key names whose values
+            should get an inline SQL query button.
 
     Returns:
         A complete ``<!DOCTYPE html>`` string suitable for use as the
@@ -462,6 +480,7 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
             if chip.get("extras"):
                 entry["ext"] = chip["extras"]
             link_lookup[field][str(chip["value"])] = entry
+    sql_fields_js = json.dumps(sql_fields or {}, ensure_ascii=False)
     data_js = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</script>", r"<\/script>")
     lookup_js = json.dumps(link_lookup, ensure_ascii=False).replace("</script>", r"<\/script>")
     return "".join([
@@ -483,6 +502,7 @@ def _build_json_tree_html(data: Any, chips: Optional[List[Dict]] = None) -> str:
         "<div id='root'></div><script>",
         "const DATA=", data_js, ";",
         "const LOOKUP=", lookup_js, ";",
+        "const SQL_FIELDS=", sql_fields_js, ";",
         "const INITIAL_DEPTH=3;",
         _TREE_JS,
         "</script></body></html>",
@@ -762,6 +782,7 @@ def _accounts_host(workspace_host: str) -> str:
 def build_response_panel(
     result: Dict[str, Any],
     chips: Optional[List[Dict]] = None,
+    endpoint_id: Optional[str] = None,
 ) -> html.Div:
     """Assemble the full response viewer panel for an API call result.
 
@@ -794,6 +815,18 @@ def build_response_panel(
         if list_key:
             item_count = f" · {len(data[list_key])} items"
 
+    # Determine SQL-queryable fields based on endpoint
+    # Maps JSON key → {full_name, table_name?} for inline SQL links.
+    # When value == table_name → SELECT *, otherwise → SELECT <value> (column)
+    sql_fields = None
+    if endpoint_id == "uc-tables-get" and isinstance(data, dict) and data.get("full_name"):
+        fn = data["full_name"]
+        tbl = data.get("name", "")
+        sql_fields = {
+            "full_name": {"full_name": fn},
+            "name": {"full_name": fn, "table_name": tbl},
+        }
+
     # CSV response: render as a scrollable HTML table
     csv_text = result.get("_csv")
     if csv_text:
@@ -814,12 +847,12 @@ def build_response_panel(
             ], className="csv-viewer")
         else:
             viewer = html.Iframe(
-                srcDoc=_build_json_tree_html(data, chips),
+                srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields),
                 style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
             )
     else:
         viewer = html.Iframe(
-            srcDoc=_build_json_tree_html(data, chips),
+            srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields),
             style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
         )
     wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
@@ -874,12 +907,25 @@ def build_response_panel(
     if side_panel:
         body_children.append(side_panel)
 
+    # "Query table" button for Get Table responses
+    query_btn = None
+    if endpoint_id == "uc-tables-get" and isinstance(data, dict) and data.get("full_name"):
+        full_name = data["full_name"]
+        query_btn = html.Button(
+            [html.I(className="bi bi-play-circle me-1"), "SELECT *"],
+            id={"type": "sql-query-table-btn", "name": full_name},
+            n_clicks=0,
+            className="sql-query-link-btn ms-2",
+            title=f"SELECT * FROM {full_name}",
+        )
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
                       color=status_color, className="status-badge"),
             html.Span(f"{ms:,}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
+            query_btn,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(body_children, className="response-body"),
@@ -1064,12 +1110,23 @@ def build_sidebar() -> html.Div:
             html.I(className="bi bi-search"),
             dbc.Input(id="search-input", placeholder="Search APIs…", type="text", className="sidebar-search"),
         ], className="search-wrapper"),
+        # All three scope views are pre-rendered; only one is visible at a time.
+        # This avoids rebuilding accordion children on scope switch, which would
+        # reset the active accordion section and selected endpoint.
         dbc.Accordion(
             _build_accordion_items(API_CATALOG),
             start_collapsed=True,
             id="api-accordion",
             className="api-accordion",
         ),
+        dbc.Accordion(
+            _build_accordion_items(ACCOUNT_API_CATALOG),
+            start_collapsed=True,
+            id="api-accordion-account",
+            className="api-accordion",
+            style={"display": "none"},
+        ),
+        html.Div(build_sql_catalog_browser(), id="sql-browser-container", style={"display": "none"}),
     ], id="sidebar", className="sidebar")
 
 
@@ -2037,6 +2094,7 @@ app.layout = html.Div([
     dcc.Store(id="sql-cat-selected", data=None),      # selected catalog name for SQL browser
     dcc.Store(id="sql-schema-selected", data=None),   # selected schema name for SQL browser
     dcc.Store(id="sql-table-selected", data=None),    # selected table for SQL browser → populates form
+    dcc.Store(id="sql-navigate", data=None),           # {full_name: "cat.sch.tbl"} → switch to SQL & run SELECT *
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
@@ -2046,6 +2104,8 @@ app.layout = html.Div([
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
     dcc.Store(id="api-scope", data="workspace"),     # "workspace" or "account"
+    dcc.Store(id="accordion-user-click", data=None),   # active_item set by real user click (not rebuild)
+    dcc.Store(id="pending-active-item", data=None),    # unused, kept for compatibility
     dcc.Store(id="cloud-provider", data=None),       # "aws", "azure", "gcp", or None
 
     TOPBAR,
@@ -2102,37 +2162,46 @@ app.clientside_callback(
 )
 
 
-# 0b. Rebuild the accordion and highlight the active scope button
-@app.callback(
-    Output("api-accordion", "children"),
+# 0b. Toggle visibility of the three sidebar views and highlight scope buttons.
+#     No children are rebuilt — all three views are pre-rendered in the layout.
+app.clientside_callback(
+    """
+    function(scope, cloud) {
+        var ws  = document.getElementById('api-accordion');
+        var acc = document.getElementById('api-accordion-account');
+        var sql = document.getElementById('sql-browser-container');
+        var sidebar = document.getElementById('sidebar');
+        if (ws)  ws.style.display  = scope === 'workspace' ? '' : 'none';
+        if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
+        if (sql) sql.style.display = scope === 'sql'       ? '' : 'none';
+        if (sidebar) sidebar.classList.toggle('sql-active', scope === 'sql');
+        var base = 'scope-btn';
+        var active = 'scope-btn scope-btn-active';
+        return [
+            scope === 'workspace' ? active : base,
+            scope === 'account'   ? active : base,
+            scope === 'sql'       ? active : base,
+        ];
+    }
+    """,
     Output("scope-workspace-btn", "className"),
     Output("scope-account-btn", "className"),
     Output("scope-sql-btn", "className"),
     Input("api-scope", "data"),
     Input("cloud-provider", "data"),
-    State("conn-config", "data"),
+    prevent_initial_call=True,
 )
-def rebuild_sidebar_for_scope(scope, cloud, conn_config):
-    """Callback 0b: Rebuild the accordion items when the API scope or cloud changes."""
-    if scope == "sql":
-        browser = build_sql_catalog_browser()
-        return [browser], "scope-btn", "scope-btn", "scope-btn scope-btn-active"
-    if scope == "account":
-        items = _build_accordion_items(ACCOUNT_API_CATALOG, cloud)
-        return items, "scope-btn", "scope-btn scope-btn-active", "scope-btn"
-    items = _build_accordion_items(API_CATALOG, cloud)
-    return items, "scope-btn scope-btn-active", "scope-btn", "scope-btn"
 
 
-# 0b2. Fetch catalogs asynchronously after the SQL browser skeleton is rendered
+
+# 0b2. Fetch catalogs asynchronously when SQL scope is activated
 @app.callback(
     Output("sql-browser-catalog-list", "children", allow_duplicate=True),
-    Input("api-accordion", "children"),
-    State("api-scope", "data"),
+    Input("api-scope", "data"),
     State("conn-config", "data"),
     prevent_initial_call=True,
 )
-def fetch_sql_catalogs(_, scope, conn_config):
+def fetch_sql_catalogs(scope, conn_config):
     """Callback 0b2: Populate the catalog list after SQL scope is activated."""
     if scope != "sql":
         return no_update
@@ -2148,14 +2217,35 @@ def fetch_sql_catalogs(_, scope, conn_config):
     Output("response-container", "children", allow_duplicate=True),
     Input("api-scope", "data"),
     Input("conn-config", "data"),
+    State("selected-endpoint", "data"),
+    State("cloud-provider", "data"),
+    State("response-cache", "data"),
     prevent_initial_call=True,
 )
-def render_sql_on_scope(scope, conn_config):
-    """Callback 0c: Show the SQL editor panel when the SQL scope is activated or profile changes."""
-    if scope != "sql":
-        return no_update, no_update, no_update
-    warehouses = _fetch_warehouses(conn_config)
-    return build_sql_panel(warehouses), "form-panel form-panel-wide", _RESPONSE_EMPTY
+def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
+    """Callback 0c: Show the SQL editor when SQL scope activates; restore API view otherwise."""
+    if scope == "sql":
+        warehouses = _fetch_warehouses(conn_config)
+        return build_sql_panel(warehouses), "form-panel form-panel-wide", _RESPONSE_EMPTY
+
+    # Switching away from SQL — restore the endpoint detail and cached response
+    if not current_endpoint:
+        return WELCOME, "form-panel", _RESPONSE_EMPTY
+
+    # Re-render the endpoint detail form (reuses callback 9 logic)
+    detail = render_endpoint_detail(current_endpoint, conn_config, cloud)
+
+    # Restore cached response if available
+    ep_id = current_endpoint.get("id", "")
+    cached = (cache or {}).get(ep_id)
+    if cached:
+        result = cached["result"]
+        chips = cached.get("chips")
+        response = build_response_panel(result, chips, endpoint_id=ep_id)
+    else:
+        response = _RESPONSE_EMPTY
+
+    return detail[0], detail[1], response
 
 
 # 0d. Execute SQL statement (triggered by sql-trigger store, written by clientside 0e)
@@ -3226,17 +3316,54 @@ def select_endpoint(n_clicks_list, btn_ids):
     return endpoint
 
 
-# 8a. Auto-select the first endpoint when a category header is clicked
+# 8a-listener. Install a click listener on the accordion that captures real
+#   user clicks on category headers (not programmatic active_item changes).
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._accordionClickListenerAdded) return window.dash_clientside.no_update;
+        window._accordionClickListenerAdded = true;
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.accordion-button');
+            if (!btn) return;
+            /* Check both workspace and account accordions */
+            var accIds = ['api-accordion', 'api-accordion-account'];
+            for (var a = 0; a < accIds.length; a++) {
+                var acc = document.getElementById(accIds[a]);
+                if (!acc || !acc.contains(btn)) continue;
+                var items = acc.querySelectorAll(':scope > .accordion-item');
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].contains(btn)) {
+                        window.dash_clientside.set_props('accordion-user-click',
+                            {data: {item: 'item-' + i, ts: Date.now()}});
+                        return;
+                    }
+                }
+            }
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("accordion-user-click", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
+)
+
+
+# 8a. Auto-select the first endpoint when a category header is clicked by the user
 @app.callback(
     Output("selected-endpoint", "data", allow_duplicate=True),
-    Input("api-accordion", "active_item"),
+    Input("accordion-user-click", "data"),
     State("api-scope", "data"),
     State("cloud-provider", "data"),
     State("selected-endpoint", "data"),
     prevent_initial_call=True,
 )
-def auto_select_on_accordion_open(active_item, scope, cloud, current_endpoint):
-    """Callback 8a: Select the first endpoint when a category accordion opens."""
+def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
+    """Callback 8a: Select the first endpoint when a category is opened by user click."""
+    if not click_data or scope == "sql":
+        return no_update
+    active_item = click_data.get("item", "")
     if not active_item:
         return no_update
     # Extract the category index from "item-N"
@@ -3263,11 +3390,13 @@ def auto_select_on_accordion_open(active_item, scope, cloud, current_endpoint):
 @app.callback(
     Output({"type": "endpoint-btn", "id": ALL}, "className"),
     Output("api-accordion", "active_item"),
+    Output("api-accordion-account", "active_item"),
     Input("selected-endpoint", "data"),
+    Input("api-scope", "data"),
     State({"type": "endpoint-btn", "id": ALL}, "id"),
     prevent_initial_call=True,
 )
-def sync_active_button(endpoint, btn_ids):
+def sync_active_button(endpoint, _scope, btn_ids):
     """Callback 8b: Highlight the active sidebar button and open its accordion section."""
     active_id = (endpoint or {}).get("id", "")
     classes = ["endpoint-btn active" if b["id"] == active_id else "endpoint-btn" for b in btn_ids]
@@ -3276,10 +3405,14 @@ def sync_active_button(endpoint, btn_ids):
     scope = (endpoint or {}).get("scope", "workspace")
     catalog = ACCOUNT_API_CATALOG if scope == "account" else API_CATALOG
     cat_keys = list(catalog.keys())
-    active_item = no_update
+    ws_item, acct_item = no_update, no_update
     if cat_name in cat_keys:
-        active_item = f"item-{cat_keys.index(cat_name)}"
-    return classes, active_item
+        item = f"item-{cat_keys.index(cat_name)}"
+        if scope == "account":
+            acct_item = item
+        else:
+            ws_item = item
+    return classes, ws_item, acct_item
 
 
 # 9. Render endpoint detail
@@ -3376,7 +3509,7 @@ def restore_cached_response(endpoint, cache):
         return _RESPONSE_EMPTY, None
     result = cached["result"]
     chips = cached.get("chips")
-    return build_response_panel(result, chips), chips
+    return build_response_panel(result, chips, endpoint_id=ep_id), chips
 
 
 # 10. Execute API call
@@ -3483,7 +3616,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
     new_cache = dict(cache or {})
     new_cache[ep_id] = {"result": result, "chips": chips or None}
     btn_style = {"display": "inline-flex"} if has_more else {"display": "none"}
-    return build_response_panel(result, chips), last_req, time.time(), chips or None, new_cache, btn_style, ""
+    return build_response_panel(result, chips, endpoint_id=ep_id), last_req, time.time(), chips or None, new_cache, btn_style, ""
 
 
 # 11. Signal tick_fetch to start a new pagination run whenever execute fires.
@@ -3703,7 +3836,7 @@ def render_when_done(page_state, cache):
     new_cache = dict(cache or {})
     if ep_id:
         new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
-    return build_response_panel(merged_result, chips), new_cache, True
+    return build_response_panel(merged_result, chips, endpoint_id=ep_id), new_cache, True
 
 
 # 11g. Abort button — cancel in-flight pagination
@@ -3937,7 +4070,7 @@ def poll_load_all(n_intervals, cache):
     # Mark done, set dismiss timer — keep ticker running for auto-dismiss
     _load_all_state.update({"done": False, "items": [], "finished_at": time.time()})
 
-    return build_response_panel(merged_result, chips), new_cache, chips or None, status, False
+    return build_response_panel(merged_result, chips, endpoint_id=ep_id), new_cache, chips or None, status, False
 
 
 # 11h-abort: Stop background Load All thread
@@ -4049,6 +4182,11 @@ app.clientside_callback(
                 if (e.data && e.data.type === 'id-link') {
                     window.dash_clientside.set_props('iframe-link-click', {data: e.data});
                 }
+                if (e.data && e.data.type === 'sql-link' && e.data.full_name) {
+                    var nav = {full_name: e.data.full_name, _ts: Date.now()};
+                    if (e.data.column) nav.column = e.data.column;
+                    window.dash_clientside.set_props('sql-navigate', {data: nav});
+                }
             });
         }
         return window.dash_clientside.no_update;
@@ -4132,7 +4270,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
     endpoint_with_prefill = {**endpoint, "_prefill": prefill}
     new_cache = dict(cache or {})
     new_cache[get_id] = {"result": result, "chips": chips or None}
-    return endpoint_with_prefill, build_response_panel(result, chips), new_cache, time.time()
+    return endpoint_with_prefill, build_response_panel(result, chips, endpoint_id=get_id), new_cache, time.time()
 
 
 # 17. Side-panel toggle — pure JS, no server round-trip
@@ -4177,31 +4315,40 @@ def handle_sp_item_click(n_clicks_list, chips_data):
     return msg
 
 
-# 18b. Side-panel action button click → navigate to action endpoint
+# 18b. Side-panel action button click → navigate to action endpoint (or SQL)
 @app.callback(
     Output("iframe-link-click", "data", allow_duplicate=True),
+    Output("sql-navigate", "data", allow_duplicate=True),
     Input({"type": "sp-action", "index": ALL, "action": ALL}, "n_clicks"),
     State("chips-store", "data"),
     prevent_initial_call=True,
 )
 def handle_sp_action_click(n_clicks_list, chips_data):
-    """Callback 18b: Translate a side-panel action button click into an iframe-link-click event."""
+    """Callback 18b: Translate a side-panel action button click into an iframe-link-click or SQL navigation."""
     from dash import callback_context
     if not callback_context.triggered or not chips_data:
-        return no_update
+        return no_update, no_update
     triggered = callback_context.triggered[0]
     if not triggered["value"]:
-        return no_update
+        return no_update, no_update
     tid = json.loads(triggered["prop_id"].split(".")[0])
     idx, action_idx = tid["index"], tid["action"]
     if idx >= len(chips_data):
-        return no_update
+        return no_update, no_update
     chip = chips_data[idx]
     actions = chip.get("actions") or []
     if action_idx >= len(actions):
-        return no_update
+        return no_update, no_update
     action = actions[action_idx]
-    # The action's params dict has all params needed; pick the first as the primary par/val
+
+    # Special SQL action: navigate to SQL mode with SELECT *
+    if action["gid"] == "_sql_select_star":
+        full_name = action["params"].get("full_name", "")
+        if full_name:
+            return no_update, {"full_name": full_name, "_ts": time.time()}
+        return no_update, no_update
+
+    # Normal action: navigate to the target endpoint
     params = action["params"]
     first_key = next(iter(params), "")
     first_val = params.get(first_key, "")
@@ -4209,7 +4356,69 @@ def handle_sp_action_click(n_clicks_list, chips_data):
     msg = {"type": "id-link", "gid": action["gid"], "par": first_key, "val": first_val}
     if ext:
         msg["ext"] = ext
-    return msg
+    return msg, no_update
+
+
+# 18c. "SELECT *" button in Get Table response → write sql-navigate
+@app.callback(
+    Output("sql-navigate", "data"),
+    Input({"type": "sql-query-table-btn", "name": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_get_table_sql_btn(n_clicks_list):
+    """Callback 18c: Navigate to SQL mode when the SELECT * button is clicked in a Get Table response."""
+    if not ctx.triggered or not any(n_clicks_list):
+        return no_update
+    tid = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])
+    full_name = tid.get("name", "")
+    if not full_name:
+        return no_update
+    return {"full_name": full_name, "_ts": time.time()}
+
+
+# 18d. sql-navigate store → switch to SQL scope, populate query, and auto-execute
+app.clientside_callback(
+    """
+    function(navData) {
+        if (!navData || !navData.full_name) return window.dash_clientside.no_update;
+        var parts = navData.full_name.split('.');
+        var cat = parts[0] || '';
+        var sch = parts[1] || '';
+        var tbl = parts[2] || '';
+        var fqn = '`' + cat + '`.`' + sch + '`.`' + tbl + '`';
+        var col = navData.column ? '`' + navData.column + '`' : '*';
+        var stmt = 'SELECT ' + col + ' FROM ' + fqn + ' LIMIT 100';
+
+        /* Switch to SQL scope */
+        var sqlBtn = document.getElementById('scope-sql-btn');
+        if (sqlBtn) sqlBtn.click();
+
+        /* Poll until the SQL textarea is rendered, then populate and execute */
+        var attempts = 0;
+        var poller = setInterval(function() {
+            attempts++;
+            var ta = document.getElementById('sql-textarea');
+            if (ta || attempts > 50) {
+                clearInterval(poller);
+                if (!ta) return;
+                window.dash_clientside.set_props('sql-catalog-input', {value: cat});
+                window.dash_clientside.set_props('sql-schema-input', {value: sch});
+                window.dash_clientside.set_props('sql-textarea', {value: stmt});
+                /* Auto-execute after a tick to let props propagate */
+                setTimeout(function() {
+                    var execBtn = document.getElementById('sql-execute-btn');
+                    if (execBtn) execBtn.click();
+                }, 150);
+            }
+        }, 100);
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-cleanup-dummy", "data", allow_duplicate=True),
+    Input("sql-navigate", "data"),
+    prevent_initial_call=True,
+)
 
 
 # 19. Build curl command below Execute button whenever a request completes
