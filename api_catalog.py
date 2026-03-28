@@ -191,15 +191,6 @@ API_CATALOG: Dict[str, Any] = {
                 "params": [_p("path", "The absolute path of the notebook or directory.", required=True)],
                 "body": None,
             },
-            {
-                "id": "workspace-search",
-                "name": "Search Workspace",
-                "method": "GET",
-                "path": "/api/2.0/workspace/search",
-                "description": "Searches for workspace objects by query string.",
-                "params": [_p("query", "The search query string.", required=True)],
-                "body": None,
-            },
         ],
     },
     "DBFS": {
@@ -1429,7 +1420,6 @@ DOCS_URL_MAP: Dict[str, str] = {
     # Workspace — Workspace
     "workspace-list":            "workspace/workspace/list",
     "workspace-get-status":      "workspace/workspace/getstatus",
-    "workspace-search":          "workspace/workspace/search",
     # Workspace — DBFS
     "dbfs-list":                 "workspace/dbfs/list",
     "dbfs-get-status":           "workspace/dbfs/getstatus",
