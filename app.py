@@ -3268,6 +3268,20 @@ def poll_sso(n_intervals):
     ), True
 
 
+# 6c. Clear all cached outputs when the connection changes
+@app.callback(
+    Output("response-cache", "data"),
+    Output("selected-endpoint", "data", allow_duplicate=True),
+    Output("response-container", "children", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
+    Input("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def clear_caches_on_connect(_conn_config):
+    """Callback 6c: Reset all cached API outputs when the connection profile changes."""
+    return {}, None, _RESPONSE_EMPTY, None
+
+
 # 7. Re-auth (profile mode only)
 @app.callback(
     Output("reauth-status", "children"),
