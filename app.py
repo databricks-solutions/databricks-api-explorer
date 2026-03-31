@@ -1936,6 +1936,16 @@ def build_sql_panel(warehouses):
                 html.Span("s", className="timeout-unit"),
             ], className="timeout-control", title="Query timeout in seconds"),
         ], className="execute-row"),
+        html.Div([
+            html.Div([
+                html.Span([html.I(className="bi bi-terminal me-2"), "curl"], className="curl-label"),
+                html.Button(
+                    [html.I(className="bi bi-clipboard me-1"), "Copy"],
+                    id="sql-curl-copy-btn", n_clicks=0, className="curl-copy-btn",
+                ),
+            ], className="curl-header"),
+            html.Pre(id="sql-curl-text", className="curl-text font-mono"),
+        ], id="sql-curl-display", className="curl-display"),
         html.Div(id="sql-progress-bar-container", className="sql-progress-container"),
     ], className="endpoint-card")
 
@@ -2087,6 +2097,8 @@ app.layout = html.Div([
     dcc.Store(id="curl-dummy", data=None),          # dummy output for curl copy clientside CB
     dcc.Store(id="sql-trigger", data=None, storage_type="memory"),  # fires server-side SQL execute
     dcc.Store(id="sql-cleanup-dummy", data=None),     # dummy output for SQL cleanup clientside CB
+    dcc.Store(id="sql-last-request", data=None),     # last SQL request body for curl display
+    dcc.Store(id="sql-curl-dummy", data=None),       # dummy output for SQL curl copy clientside CB
     dcc.Store(id="sql-refresh-wh", data=None),        # triggers warehouse status refresh after query
     dcc.Store(id="sql-wh-options", data=None),        # updated warehouse options from server
     dbc.Input(id="sql-wh-value", type="hidden", value=""),   # mirrors warehouse dropdown value
@@ -2252,6 +2264,7 @@ def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
 #     All form values are passed via the trigger dict to avoid State refs to dynamic components.
 @app.callback(
     Output("response-container", "children", allow_duplicate=True),
+    Output("sql-last-request", "data"),
     Input("sql-trigger", "data"),
     State("conn-config", "data"),
     prevent_initial_call=True,
@@ -2259,7 +2272,7 @@ def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
 def execute_sql_statement(trigger, conn_config):
     """Callback 0d: Execute a SQL statement via the Statement Execution API."""
     if not trigger or not isinstance(trigger, dict):
-        return no_update
+        return no_update, no_update
 
     warehouse_id = trigger.get("warehouse_id")
     statement = trigger.get("statement")
@@ -2269,13 +2282,13 @@ def execute_sql_statement(trigger, conn_config):
     timeout_val = trigger.get("timeout")
 
     if not warehouse_id:
-        return build_error_panel("Please select a SQL warehouse.")
+        return build_error_panel("Please select a SQL warehouse."), no_update
     if not statement or not statement.strip():
-        return build_error_panel("Please enter a SQL statement.")
+        return build_error_panel("Please enter a SQL statement."), no_update
 
     host, token = _resolve_conn(conn_config)
     if not host or not token:
-        return build_error_panel("No connection. Configure a connection in the user menu.")
+        return build_error_panel("No connection. Configure a connection in the user menu."), no_update
 
     try:
         timeout_secs = max(1, min(300, int(timeout_val or 30)))
@@ -2307,7 +2320,8 @@ def execute_sql_statement(trigger, conn_config):
         method="POST", path="/api/2.0/sql/statements",
         token=token, host=host, body=body, timeout=timeout_secs + 5,
     )
-    return build_sql_results(result)
+    sql_req = {"host": host, "body": body}
+    return build_sql_results(result), sql_req
 
 
 # 0e. Install a global click handler that collects SQL form values, shows animation, and
@@ -4492,6 +4506,52 @@ app.clientside_callback(
 )
 
 
+# 19c. Build curl command for SQL Statement Execution
+@app.callback(
+    Output("sql-curl-text", "children"),
+    Output("sql-curl-display", "style"),
+    Input("sql-last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def update_sql_curl_display(sql_req, conn_config):
+    """Callback 19c: Build a ready-to-copy ``curl`` command from the last SQL request."""
+    if not sql_req:
+        return "", {"display": "none"}
+    host, token = _resolve_conn(conn_config)
+    body = sql_req.get("body", {})
+    full_url = f"{host}/api/2.0/sql/statements"
+    lines = [
+        f"curl -X POST \\",
+        f"  '{full_url}' \\",
+        f"  -H 'Authorization: Bearer {token}' \\",
+        f"  -H 'Content-Type: application/json' \\",
+        f"  -d '{json.dumps(body, separators=(',', ':'))}'",
+    ]
+    return "\n".join(lines), {"display": "block"}
+
+
+# 19d. Copy SQL curl command to clipboard
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var el = document.getElementById('sql-curl-text');
+        var btn = document.getElementById('sql-curl-copy-btn');
+        if (!el || !btn) return window.dash_clientside.no_update;
+        navigator.clipboard.writeText(el.textContent).then(function() {
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
+            setTimeout(function() {
+                btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+            }, 1500);
+        }).catch(function() {});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-curl-dummy", "data"),
+    Input("sql-curl-copy-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
