@@ -436,10 +436,16 @@ document.addEventListener('DOMContentLoaded',function(){
 """
 
 
+_ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
+    "mlflow-runs-search": 6,
+}
+
+
 def _build_json_tree_html(
     data: Any,
     chips: Optional[List[Dict]] = None,
     sql_fields: Optional[List[str]] = None,
+    initial_depth: int = 3,
 ) -> str:
     """Build a self-contained HTML document with a collapsible JSON tree.
 
@@ -503,7 +509,7 @@ def _build_json_tree_html(
         "const DATA=", data_js, ";",
         "const LOOKUP=", lookup_js, ";",
         "const SQL_FIELDS=", sql_fields_js, ";",
-        "const INITIAL_DEPTH=3;",
+        f"const INITIAL_DEPTH={initial_depth};",
         _TREE_JS,
         "</script></body></html>",
     ])
@@ -827,6 +833,8 @@ def build_response_panel(
             "name": {"full_name": fn, "table_name": tbl},
         }
 
+    collapse_depth = _ENDPOINT_COLLAPSE_DEPTH.get(endpoint_id, 3)
+
     # CSV response: render as a scrollable HTML table
     csv_text = result.get("_csv")
     if csv_text:
@@ -847,12 +855,12 @@ def build_response_panel(
             ], className="csv-viewer")
         else:
             viewer = html.Iframe(
-                srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields),
+                srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields, initial_depth=collapse_depth),
                 style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
             )
     else:
         viewer = html.Iframe(
-            srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields),
+            srcDoc=_build_json_tree_html(data, chips, sql_fields=sql_fields, initial_depth=collapse_depth),
             style={"width": "100%", "height": "100%", "border": "none", "display": "block"},
         )
     wrapper_cls = "json-viewer-wrapper json-viewer-iframe"
@@ -1004,6 +1012,8 @@ def build_param_form(
                 for k, v in prefill.items():
                     if k in body_obj:
                         body_obj[k] = v
+                    elif k + "s" in body_obj and isinstance(body_obj[k + "s"], list):
+                        body_obj[k + "s"] = [str(v)]
                 body_value = json.dumps(body_obj, indent=2)
             except (json.JSONDecodeError, TypeError):
                 pass
