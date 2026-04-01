@@ -653,7 +653,9 @@ LIST_TO_GET: Dict[str, Any] = {
     "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     "name", None, [
                                       ("_sql_select_star", "bi-play-circle", "SELECT * FROM this table", {"full_name": "full_name"}),
                                   ]),
-    "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name"),
+    "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name", None, [
+                                      ("mlflow-runs-search", "bi-list-ul", "Search Runs", {"experiment_id": "experiment_id"}),
+                                  ]),
     "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
     "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name", None, [
                                       ("pipelines-events", "bi-journal-text", "List Pipeline Events", {"pipeline_id": "pipeline_id"}),
