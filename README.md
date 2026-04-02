@@ -97,6 +97,15 @@ An interactive REST API explorer for Databricks — covering both **Workspace** 
 - **CSV viewer** — endpoints that return CSV data (e.g. Usage Download) are rendered as a scrollable HTML table
 - **curl command** — every executed request generates a ready-to-copy `curl` command displayed below the Execute button, with a one-click copy button
 
+### SQL Statement Execution
+
+- **Dedicated SQL panel** — a standalone SQL execution interface accessible from the sidebar, separate from the REST API explorer
+- **Warehouse selector** — auto-discovers available SQL warehouses from the connected workspace, defaulting to a running warehouse
+- **Inline results** — query results are rendered directly in the response viewer with the same collapsible JSON tree
+- **Optional catalog/schema context** — set default catalog and schema for unqualified table names
+- **Row limit control** — configurable row limit (default 1,000) to cap result size
+- **curl command** — generates a ready-to-copy `curl` command for the executed SQL statement
+
 ### Pagination
 
 - **Automatic pagination** — when a response contains a `next_page_token`, the app automatically fetches subsequent pages and merges them into a single result
