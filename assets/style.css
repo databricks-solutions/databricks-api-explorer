@@ -131,48 +131,76 @@ body {
 
 /* ── Scope switcher (Workspace / Account / SQL) ──────────────────────────── */
 .scope-switcher {
-  display: flex;
-  gap: 0;
   padding: 10px 12px 0;
   flex-shrink: 0;
 }
-.scope-btn {
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 0;
-  font-size: 12px;
+
+/* ── Shared dark-theme dropdown styles (scope, lakebase method) ── */
+.scope-dropdown.dash-dropdown,
+.lb-method-dropdown.dash-dropdown {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  color: var(--text-1) !important;
+  font-size: 12px !important;
   font-weight: 500;
-  color: var(--text-3);
-  background: transparent;
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: all 0.15s;
+  min-height: 34px !important;
 }
-.scope-btn:first-child {
-  border-radius: 6px 0 0 6px;
+.scope-dropdown.dash-dropdown:hover,
+.lb-method-dropdown.dash-dropdown:hover {
+  border-color: var(--text-3) !important;
 }
-.scope-btn:not(:last-child) {
-  border-right: none;
+.scope-dropdown.dash-dropdown[data-state="open"],
+.scope-dropdown.dash-dropdown:focus-within,
+.lb-method-dropdown.dash-dropdown[data-state="open"],
+.lb-method-dropdown.dash-dropdown:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.12) !important;
 }
-.scope-btn:last-child {
-  border-radius: 0 6px 6px 0;
+.scope-dropdown .dash-dropdown-value-item span,
+.scope-dropdown .dash-dropdown-trigger,
+.scope-dropdown *,
+.lb-method-dropdown .dash-dropdown-value-item span,
+.lb-method-dropdown .dash-dropdown-trigger,
+.lb-method-dropdown * {
+  color: var(--text-1) !important;
+  font-size: 12px !important;
 }
-.scope-btn:hover {
-  color: var(--text-2);
-  background: rgba(255,255,255,0.04);
+.scope-dropdown .dash-dropdown-trigger-icon,
+.lb-method-dropdown .dash-dropdown-trigger-icon {
+  color: var(--text-3) !important;
 }
-.scope-btn-active {
-  color: var(--cyan) !important;
-  background: rgba(0,212,255,0.08) !important;
-  border-color: rgba(0,212,255,0.3) !important;
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-dropdown-content,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-dropdown-content {
+  background-color: var(--bg-surface, #141a2e) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+  font-size: 12px !important;
 }
-#scope-sql-btn { flex: 0.65 1 0; }
-.scope-btn-active + .scope-btn {
-  border-left-color: rgba(0,212,255,0.3);
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-options-list-option,
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-dropdown-option,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-options-list-option,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-dropdown-option {
+  color: var(--text-1) !important;
+  background-color: transparent !important;
+  font-size: 12px !important;
 }
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-options-list-option:hover,
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-dropdown-option:hover,
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-dropdown-option[aria-selected="true"],
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-options-list-option:hover,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-dropdown-option:hover,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-dropdown-option[aria-selected="true"] {
+  background-color: var(--bg-hover, rgba(255,255,255,0.055)) !important;
+  color: var(--text-hi) !important;
+}
+.dash-dropdown-wrapper:has(.scope-dropdown) .dash-options-list-option-text span,
+.dash-dropdown-wrapper:has(.lb-method-dropdown) .dash-options-list-option-text span {
+  color: inherit !important;
+  font-size: 12px !important;
+}
+.sidebar.lakebase-active .search-wrapper { display: none; }
 
 .search-wrapper {
   padding: 14px 12px 10px;

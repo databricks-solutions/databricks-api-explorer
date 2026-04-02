@@ -1094,23 +1094,18 @@ def build_sidebar() -> html.Div:
         A Dash ``html.Div`` containing the sidebar layout.
     """
     scope_switcher = html.Div([
-        html.Button(
-            [html.I(className="bi bi-pc-display me-1"), "Workspace"],
-            id="scope-workspace-btn",
-            n_clicks=0,
-            className="scope-btn scope-btn-active",
-        ),
-        html.Button(
-            [html.I(className="bi bi-globe me-1"), "Account"],
-            id="scope-account-btn",
-            n_clicks=0,
-            className="scope-btn",
-        ),
-        html.Button(
-            [html.I(className="bi bi-database me-1"), "SQL"],
-            id="scope-sql-btn",
-            n_clicks=0,
-            className="scope-btn",
+        dcc.Dropdown(
+            id="scope-dropdown",
+            options=[
+                {"label": html.Span([html.I(className="bi bi-pc-display me-2"), "Workspace APIs"]), "value": "workspace"},
+                {"label": html.Span([html.I(className="bi bi-globe me-2"), "Account APIs"]), "value": "account"},
+                {"label": html.Span([html.I(className="bi bi-database me-2"), "SQL Execution"]), "value": "sql"},
+                {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
+            ],
+            value="workspace",
+            clearable=False,
+            searchable=False,
+            className="scope-dropdown",
         ),
     ], className="scope-switcher")
 
@@ -1137,6 +1132,7 @@ def build_sidebar() -> html.Div:
             style={"display": "none"},
         ),
         html.Div(build_sql_catalog_browser(), id="sql-browser-container", style={"display": "none"}),
+        html.Div(id="lakebase-sidebar-placeholder", style={"display": "none"}),
     ], id="sidebar", className="sidebar")
 
 
@@ -2064,6 +2060,241 @@ def build_sql_results(result):
     return html.Div(children, className="sql-results")
 
 
+# ── Lakebase Data API Panel ──────────────────────────────────────────────────
+
+def build_lakebase_panel():
+    """Build the Lakebase Data API (PostgREST) form panel."""
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-database-gear me-2", style={"color": "var(--accent)"}),
+                html.Span("Lakebase Data API", className="endpoint-name"),
+                dbc.Badge("Beta", color="warning", className="ms-2", style={"fontSize": "10px", "fontWeight": "500"}),
+                html.A(
+                    html.I(className="bi bi-box-arrow-up-right"),
+                    href="https://docs.databricks.com/en/oltp/projects/data-api.html",
+                    target="_blank", rel="noopener noreferrer",
+                    className="endpoint-doc-link ms-2", title="View API docs",
+                ),
+            ], className="d-flex align-items-center"),
+        ], className="endpoint-header"),
+        html.Div("PostgREST-compatible", className="endpoint-path font-mono"),
+        html.Div(
+            "Query, insert, update, and delete records in your Lakebase Postgres database via REST.",
+            className="endpoint-desc",
+        ),
+        html.Hr(className="divider"),
+        # Endpoint URL (required)
+        html.Div([
+            html.Div([
+                html.Span("endpoint_url", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div("REST endpoint URL from your Lakebase project's Data API page", className="param-desc"),
+            dbc.Input(
+                id="lb-endpoint-url",
+                placeholder="https://your-project.lakebase.databricks.com/api/v1",
+                className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        # Schema
+        html.Div([
+            html.Div([
+                html.Span("schema", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Database schema to query (appended to the URL path)", className="param-desc"),
+            dbc.Input(
+                id="lb-schema-input", value="public",
+                className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        # Table (required)
+        html.Div([
+            html.Div([
+                html.Span("table", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Table name to operate on", className="param-desc"),
+            dbc.Input(
+                id="lb-table-input", placeholder="e.g. clients",
+                className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        # HTTP Method
+        html.Div([
+            html.Div([
+                html.Span("method", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div("GET = query, POST = insert, PATCH = update, DELETE = delete", className="param-desc"),
+            dcc.Dropdown(
+                id="lb-method-select",
+                options=[
+                    {"label": "GET — Query / Filter", "value": "GET"},
+                    {"label": "POST — Insert", "value": "POST"},
+                    {"label": "PATCH — Update", "value": "PATCH"},
+                    {"label": "DELETE — Delete", "value": "DELETE"},
+                ],
+                value="GET", clearable=False, searchable=False,
+                className="lb-method-dropdown",
+            ),
+        ], className="param-row"),
+        # select
+        html.Div([
+            html.Div([
+                html.Span("select", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Columns to return, e.g. id,name,projects(id,name)", className="param-desc"),
+            dbc.Input(id="lb-select-input", placeholder="id,name,email", className="param-input font-mono"),
+        ], className="param-row"),
+        # filter
+        html.Div([
+            html.Div([
+                html.Span("filter", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("PostgREST filter, e.g. id=gte.2 or status=eq.active (one per line)", className="param-desc"),
+            dbc.Textarea(
+                id="lb-filter-input",
+                placeholder="id=gte.2\nstatus=eq.active",
+                className="param-input font-mono", rows=3,
+            ),
+        ], className="param-row"),
+        # order
+        html.Div([
+            html.Div([
+                html.Span("order", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Sort order, e.g. created_at.desc,name.asc", className="param-desc"),
+            dbc.Input(id="lb-order-input", placeholder="created_at.desc", className="param-input font-mono"),
+        ], className="param-row"),
+        # limit
+        html.Div([
+            html.Div([
+                html.Span("limit", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Maximum rows to return", className="param-desc"),
+            dbc.Input(id="lb-limit-input", type="number", value=100, min=1, className="param-input font-mono"),
+        ], className="param-row"),
+        # offset
+        html.Div([
+            html.Div([
+                html.Span("offset", className="param-name"),
+                dbc.Badge("optional", color="secondary", className="param-badge"),
+            ], className="param-label"),
+            html.Div("Number of rows to skip (for pagination)", className="param-desc"),
+            dbc.Input(id="lb-offset-input", type="number", placeholder="0", min=0, className="param-input font-mono"),
+        ], className="param-row"),
+        # Body (for POST/PATCH)
+        html.Div([
+            html.Div([
+                html.Span("body", className="param-name"),
+                dbc.Badge("POST / PATCH", color="info", className="param-badge"),
+            ], className="param-label"),
+            html.Div("JSON request body for insert or update operations", className="param-desc"),
+            dbc.Textarea(
+                id="lb-body-textarea",
+                placeholder='{"name": "Acme Corp", "email": "contact@acme.com"}',
+                className="sql-textarea font-mono", rows=6,
+            ),
+        ], className="param-row"),
+        html.Hr(className="divider"),
+        # Execute
+        html.Div([
+            html.Button(
+                [html.I(className="bi bi-play-fill me-2"), "Execute"],
+                id="lb-execute-btn", n_clicks=0, className="execute-btn",
+            ),
+        ], className="execute-row"),
+        # Curl display
+        html.Div([
+            html.Div([
+                html.Span([html.I(className="bi bi-terminal me-2"), "curl"], className="curl-label"),
+                html.Button(
+                    [html.I(className="bi bi-clipboard me-1"), "Copy"],
+                    id="lb-curl-copy-btn", n_clicks=0, className="curl-copy-btn",
+                ),
+            ], className="curl-header"),
+            html.Pre(id="lb-curl-text", className="curl-text font-mono"),
+        ], id="lb-curl-display", className="curl-display"),
+    ], className="endpoint-card")
+
+
+def build_lakebase_results(result):
+    """Build the Lakebase results view — table for arrays, JSON tree for objects."""
+    data = result.get("data")
+    elapsed = result.get("elapsed_ms", 0)
+    status_code = result.get("status_code", 0)
+
+    if not result.get("success"):
+        if isinstance(data, dict):
+            msg = data.get("message", "") or data.get("details", "") or json.dumps(data, indent=2)
+        elif isinstance(data, str):
+            msg = data
+        else:
+            msg = str(data)
+        return build_error_panel(f"Lakebase Error ({status_code}): {msg}")
+
+    # Successful response: could be a list of records or a single object
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        # Render as a table
+        columns = list(data[0].keys())
+        header = html.Thead(html.Tr([html.Th(c) for c in columns]))
+        body_rows = []
+        for row in data:
+            cells = []
+            for c in columns:
+                val = row.get(c)
+                if val is None:
+                    cells.append(html.Td("NULL", className="sql-null"))
+                elif isinstance(val, (dict, list)):
+                    cells.append(html.Td(json.dumps(val, separators=(",", ":")), className="font-mono"))
+                else:
+                    cells.append(html.Td(str(val)))
+            body_rows.append(html.Tr(cells))
+        body = html.Tbody(body_rows)
+
+        children = [
+            html.Div([
+                html.I(className="bi bi-check-circle-fill me-2 text-success"),
+                html.Span(f"{len(data):,} row{'s' if len(data) != 1 else ''}"),
+                html.Span(f" · {len(columns)} column{'s' if len(columns) != 1 else ''}"),
+                html.Span(f" · {elapsed:,}ms", className="text-muted"),
+                html.Span(f" · HTTP {status_code}", className="text-muted"),
+            ], className="sql-status-bar"),
+            html.Div(
+                html.Table([header, body], className="sql-results-table"),
+                className="sql-results-wrapper",
+            ),
+        ]
+        return html.Div(children, className="sql-results")
+
+    if isinstance(data, list) and not data:
+        return html.Div([
+            html.Div([
+                html.I(className="bi bi-check-circle-fill me-2 text-success"),
+                html.Span("0 rows"),
+                html.Span(f" · {elapsed:,}ms", className="text-muted"),
+                html.Span(f" · HTTP {status_code}", className="text-muted"),
+            ], className="sql-status-bar"),
+        ], className="sql-results")
+
+    # Single object or non-tabular: render as JSON
+    return html.Div([
+        html.Div([
+            html.I(className="bi bi-check-circle-fill me-2 text-success"),
+            html.Span("Success"),
+            html.Span(f" · {elapsed:,}ms", className="text-muted"),
+            html.Span(f" · HTTP {status_code}", className="text-muted"),
+        ], className="sql-status-bar"),
+        html.Pre(json.dumps(data, indent=2), className="font-mono", style={"padding": "12px 16px", "color": "var(--text-1)"}),
+    ], className="sql-results")
+
+
 # ── Welcome Panel ─────────────────────────────────────────────────────────────
 _ALL_ENDPOINTS = TOTAL_ENDPOINTS + TOTAL_ACCOUNT_ENDPOINTS
 _ALL_CATEGORIES = TOTAL_CATEGORIES + TOTAL_ACCOUNT_CATEGORIES
@@ -2117,6 +2348,10 @@ app.layout = html.Div([
     dcc.Store(id="sql-schema-selected", data=None),   # selected schema name for SQL browser
     dcc.Store(id="sql-table-selected", data=None),    # selected table for SQL browser → populates form
     dcc.Store(id="sql-navigate", data=None),           # {full_name: "cat.sch.tbl"} → switch to SQL & run SELECT *
+    dcc.Store(id="lb-trigger", data=None, storage_type="memory"),   # fires server-side Lakebase execute
+    dcc.Store(id="lb-last-request", data=None),         # last Lakebase request for curl display
+    dcc.Store(id="lb-curl-dummy", data=None),           # dummy output for Lakebase curl copy CB
+    dcc.Store(id="scope-visibility-dummy", data=None),  # dummy for scope visibility toggle
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
@@ -2165,50 +2400,41 @@ app.layout = html.Div([
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 
-# 0a. Scope switcher — toggle between Workspace and Account APIs
+# 0a. Scope switcher — toggle between Workspace, Account, SQL, and Lakebase
 app.clientside_callback(
     """
-    function(wsClicks, acctClicks, sqlClicks) {
-        var triggered = dash_clientside.callback_context.triggered;
-        if (!triggered || !triggered.length) return dash_clientside.no_update;
-        var tid = triggered[0].prop_id;
-        if (tid.indexOf("scope-sql") !== -1) return "sql";
-        return tid.indexOf("scope-account") !== -1 ? "account" : "workspace";
+    function(val) {
+        return val || "workspace";
     }
     """,
     Output("api-scope", "data"),
-    Input("scope-workspace-btn", "n_clicks"),
-    Input("scope-account-btn", "n_clicks"),
-    Input("scope-sql-btn", "n_clicks"),
+    Input("scope-dropdown", "value"),
     prevent_initial_call=True,
 )
 
 
-# 0b. Toggle visibility of the three sidebar views and highlight scope buttons.
-#     No children are rebuilt — all three views are pre-rendered in the layout.
+# 0b. Toggle visibility of the sidebar views based on active scope.
+#     No children are rebuilt — all views are pre-rendered in the layout.
 app.clientside_callback(
     """
     function(scope, cloud) {
         var ws  = document.getElementById('api-accordion');
         var acc = document.getElementById('api-accordion-account');
         var sql = document.getElementById('sql-browser-container');
+        var lb  = document.getElementById('lakebase-sidebar-placeholder');
         var sidebar = document.getElementById('sidebar');
         if (ws)  ws.style.display  = scope === 'workspace' ? '' : 'none';
         if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
         if (sql) sql.style.display = scope === 'sql'       ? '' : 'none';
-        if (sidebar) sidebar.classList.toggle('sql-active', scope === 'sql');
-        var base = 'scope-btn';
-        var active = 'scope-btn scope-btn-active';
-        return [
-            scope === 'workspace' ? active : base,
-            scope === 'account'   ? active : base,
-            scope === 'sql'       ? active : base,
-        ];
+        if (lb)  lb.style.display  = scope === 'lakebase'  ? '' : 'none';
+        if (sidebar) {
+            sidebar.classList.toggle('sql-active', scope === 'sql');
+            sidebar.classList.toggle('lakebase-active', scope === 'lakebase');
+        }
+        return scope;
     }
     """,
-    Output("scope-workspace-btn", "className"),
-    Output("scope-account-btn", "className"),
-    Output("scope-sql-btn", "className"),
+    Output("scope-visibility-dummy", "data"),
     Input("api-scope", "data"),
     Input("cloud-provider", "data"),
     prevent_initial_call=True,
@@ -2245,12 +2471,15 @@ def fetch_sql_catalogs(scope, conn_config):
     prevent_initial_call=True,
 )
 def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
-    """Callback 0c: Show the SQL editor when SQL scope activates; restore API view otherwise."""
+    """Callback 0c: Show the SQL/Lakebase editor when those scopes activate; restore API view otherwise."""
     if scope == "sql":
         warehouses = _fetch_warehouses(conn_config)
         return build_sql_panel(warehouses), "form-panel form-panel-wide", _RESPONSE_EMPTY
 
-    # Switching away from SQL — restore the endpoint detail and cached response
+    if scope == "lakebase":
+        return build_lakebase_panel(), "form-panel form-panel-wide", _RESPONSE_EMPTY
+
+    # Switching away from SQL/Lakebase — restore the endpoint detail and cached response
     if not current_endpoint:
         return WELCOME, "form-panel", _RESPONSE_EMPTY
 
@@ -3399,7 +3628,7 @@ app.clientside_callback(
 )
 def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
     """Callback 8a: Select the first endpoint when a category is opened by user click."""
-    if not click_data or scope == "sql":
+    if not click_data or scope in ("sql", "lakebase"):
         return no_update
     active_item = click_data.get("item", "")
     if not active_item:
@@ -4455,8 +4684,7 @@ app.clientside_callback(
         var stmt = 'SELECT ' + col + ' FROM ' + fqn + ' LIMIT 100';
 
         /* Switch to SQL scope */
-        var sqlBtn = document.getElementById('scope-sql-btn');
-        if (sqlBtn) sqlBtn.click();
+        window.dash_clientside.set_props('scope-dropdown', {value: 'sql'});
 
         /* Poll until the SQL textarea is rendered, then populate and execute */
         var attempts = 0;
@@ -4587,6 +4815,255 @@ app.clientside_callback(
     """,
     Output("sql-curl-dummy", "data"),
     Input("sql-curl-copy-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# ── Lakebase Data API callbacks ──────────────────────────────────────────────
+
+# 20a. Execute Lakebase request (triggered by lb-trigger store, written by clientside 20b)
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Output("lb-last-request", "data"),
+    Input("lb-trigger", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def execute_lakebase_request(trigger, conn_config):
+    """Callback 20a: Execute a Lakebase Data API request."""
+    if not trigger or not isinstance(trigger, dict):
+        return no_update, no_update
+
+    endpoint_url = (trigger.get("endpoint_url") or "").strip().rstrip("/")
+    schema = (trigger.get("schema") or "public").strip()
+    table = (trigger.get("table") or "").strip()
+    method = (trigger.get("method") or "GET").upper()
+    select = (trigger.get("select") or "").strip()
+    filter_str = (trigger.get("filter") or "").strip()
+    order = (trigger.get("order") or "").strip()
+    limit_val = trigger.get("limit")
+    offset_val = trigger.get("offset")
+    body_str = (trigger.get("body") or "").strip()
+
+    if not endpoint_url:
+        return build_error_panel("Please enter the Lakebase REST endpoint URL."), no_update
+    if not table:
+        return build_error_panel("Please enter a table name."), no_update
+
+    _, token = _resolve_conn(conn_config)
+    if not token:
+        return build_error_panel("No connection. Configure a connection in the user menu."), no_update
+
+    # Build the full URL: {endpoint_url}/{schema}/{table}
+    url = f"{endpoint_url}/{schema}/{table}"
+
+    # Build query params
+    query_params = {}
+    if select:
+        query_params["select"] = select
+    if order:
+        query_params["order"] = order
+    if limit_val:
+        try:
+            query_params["limit"] = str(int(limit_val))
+        except (ValueError, TypeError):
+            pass
+    if offset_val:
+        try:
+            off = int(offset_val)
+            if off > 0:
+                query_params["offset"] = str(off)
+        except (ValueError, TypeError):
+            pass
+
+    # Parse filter lines into individual query params
+    if filter_str:
+        for line in filter_str.split("\n"):
+            line = line.strip()
+            if "=" in line:
+                key, _, val = line.partition("=")
+                if key.strip() and val.strip():
+                    query_params[key.strip()] = val.strip()
+
+    # Parse body for POST/PATCH
+    body = None
+    if method in ("POST", "PATCH") and body_str:
+        try:
+            body = json.loads(body_str)
+        except json.JSONDecodeError as e:
+            return build_error_panel(f"Invalid JSON body: {e}"), no_update
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    t0 = time.perf_counter()
+    try:
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            params=query_params if method in ("GET", "DELETE") else None,
+            json=body if method in ("POST", "PATCH") else None,
+            timeout=30,
+        )
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"_raw": response.text[:5000]}
+        result = {
+            "status_code": response.status_code,
+            "elapsed_ms": elapsed_ms,
+            "data": data,
+            "success": 200 <= response.status_code < 300,
+        }
+    except requests.RequestException as e:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        result = {
+            "status_code": 0,
+            "elapsed_ms": elapsed_ms,
+            "data": {"error": str(e)},
+            "success": False,
+        }
+
+    # Build curl request info
+    lb_req = {
+        "method": method,
+        "url": url,
+        "query_params": query_params if method in ("GET", "DELETE") else None,
+        "body": body,
+    }
+
+    return build_lakebase_results(result), lb_req
+
+
+# 20b. Install a global click handler that collects Lakebase form values and
+#      writes to lb-trigger via set_props — avoiding any callback on the dynamic button.
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._lbClickHandlerInstalled) return window.dash_clientside.no_update;
+        window._lbClickHandlerInstalled = true;
+
+        function _lbExecute() {
+            var btn = document.getElementById('lb-execute-btn');
+            if (!btn || btn.disabled) return;
+
+            var getVal = function(id) {
+                var el = document.getElementById(id);
+                return el ? (el.value || '') : '';
+            };
+
+            btn.disabled = true;
+
+            /* Show running animation */
+            window.dash_clientside.set_props('response-container', {children:
+                {props: {children: [
+                    {props: {children: [
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'},
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'},
+                        {props: {children: null}, type: 'Span', namespace: 'dash_html_components'}
+                    ], className: 'sql-running-dots'}, type: 'Div', namespace: 'dash_html_components'},
+                    {props: {children: 'Executing request\\u2026', className: 'sql-running-text'}, type: 'Div', namespace: 'dash_html_components'}
+                ], className: 'sql-running-indicator'}, type: 'Div', namespace: 'dash_html_components'}
+            });
+
+            /* Watch response container for changes — re-enable button when results arrive */
+            if (window._lbObserver) window._lbObserver.disconnect();
+            var rc = document.getElementById('response-container');
+            window._lbObserver = new MutationObserver(function() {
+                var rcNow = document.getElementById('response-container');
+                if (rcNow && !rcNow.querySelector('.sql-running-indicator')) {
+                    var b = document.getElementById('lb-execute-btn');
+                    if (b) b.disabled = false;
+                    window._lbObserver.disconnect();
+                }
+            });
+            if (rc) window._lbObserver.observe(rc, {childList: true, subtree: true});
+
+            window.dash_clientside.set_props('lb-trigger', {data: {
+                endpoint_url: getVal('lb-endpoint-url'),
+                schema: getVal('lb-schema-input'),
+                table: getVal('lb-table-input'),
+                method: getVal('lb-method-select'),
+                select: getVal('lb-select-input'),
+                filter: getVal('lb-filter-input'),
+                order: getVal('lb-order-input'),
+                limit: getVal('lb-limit-input'),
+                offset: getVal('lb-offset-input'),
+                body: getVal('lb-body-textarea'),
+                ts: Date.now()
+            }});
+        }
+
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('#lb-execute-btn')) _lbExecute();
+        });
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("lb-curl-dummy", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
+)
+
+
+# 20c. Build curl command for Lakebase Data API
+@app.callback(
+    Output("lb-curl-text", "children"),
+    Output("lb-curl-display", "style"),
+    Input("lb-last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def update_lb_curl_display(lb_req, conn_config):
+    """Callback 20c: Build a ready-to-copy ``curl`` command from the last Lakebase request."""
+    if not lb_req:
+        return "", {"display": "none"}
+    _, token = _resolve_conn(conn_config)
+    method = lb_req.get("method", "GET")
+    base_url = lb_req.get("url", "")
+    query_params = lb_req.get("query_params") or {}
+    body = lb_req.get("body")
+
+    from urllib.parse import urlencode
+    full_url = f"{base_url}?{urlencode(query_params)}" if query_params else base_url
+
+    lines = [
+        f"curl -X {method} \\",
+        f"  '{full_url}' \\",
+        f"  -H 'Authorization: Bearer {token}' \\",
+        "  -H 'Content-Type: application/json'",
+    ]
+    if body:
+        lines[-1] += " \\"
+        lines.append(f"  -d '{json.dumps(body, separators=(',', ':'))}'")
+
+    return "\n".join(lines), {"display": "block"}
+
+
+# 20d. Copy Lakebase curl command to clipboard
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var el = document.getElementById('lb-curl-text');
+        var btn = document.getElementById('lb-curl-copy-btn');
+        if (!el || !btn) return window.dash_clientside.no_update;
+        navigator.clipboard.writeText(el.textContent).then(function() {
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
+            setTimeout(function() {
+                btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+            }, 1500);
+        }).catch(function() {});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("lb-curl-dummy", "data", allow_duplicate=True),
+    Input("lb-curl-copy-btn", "n_clicks"),
     prevent_initial_call=True,
 )
 
