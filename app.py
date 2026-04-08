@@ -438,6 +438,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
 _ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
     "mlflow-runs-search": 6,
+    "pg-projects-get": 5,
 }
 
 

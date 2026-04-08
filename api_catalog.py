@@ -623,7 +623,7 @@ API_CATALOG: Dict[str, Any] = {
             },
         ],
     },
-    "Lakebase": {
+    "Lakebase Provisioned": {
         "icon": "bi-database-gear",
         "color": "#22d3ee",
         "endpoints": [
@@ -1036,6 +1036,12 @@ LIST_TO_GET: Dict[str, Any] = {
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
     "lakebase-instances-list":    ("lakebase-instances-get", "database_instances", "name",      "name",          None),
+    "pg-branches-list":           ("pg-branches-get",        "branches",           "@name",               "branch_id",  None, {"project_id": "@parent"}, [
+                                      ("pg-endpoints-list", "bi-hdd-network", "List Endpoints", {"project_id": "@parent", "branch_id": "@name"}),
+                                  ]),
+    "pg-projects-list":           ("pg-projects-get",        "projects",           "@name",               "project_id", None, None, [
+                                      ("pg-branches-list", "bi-diagram-2", "List Branches", {"project_id": "@name"}),
+                                  ]),
 }
 
 
@@ -1632,6 +1638,10 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
     actions_def = mapping[6] if len(mapping) > 6 else None
     if not get_id or not param_name:
         return []
+    # "@field" means: use field, but take only the last path segment as the value
+    strip_prefix = id_field.startswith("@")
+    if strip_prefix:
+        id_field = id_field[1:]
     # list_key=None means the response is a bare array
     if list_key is None:
         items = data if isinstance(data, list) else []
@@ -1641,9 +1651,11 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         return []
     chips = []
     for item in items[:60]:
-        value = item.get(id_field)
+        value = _nested_get(item, id_field) if "." in id_field else item.get(id_field)
         if value is None:
             continue
+        if strip_prefix and isinstance(value, str) and "/" in value:
+            value = value.rsplit("/", 1)[-1]
         label = _nested_get(item, label_field) if label_field else None
         label = str(label) if label else str(value)
         if label != str(value):
@@ -1651,22 +1663,32 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         extras = {}
         if extra_params:
             for target_param, source_field in extra_params.items():
-                v = item.get(source_field)
+                sf_strip = source_field.startswith("@")
+                sf_key = source_field[1:] if sf_strip else source_field
+                v = _nested_get(item, sf_key) if "." in sf_key else item.get(sf_key)
                 if v is not None:
-                    extras[target_param] = str(v)
+                    v = str(v)
+                    if sf_strip and "/" in v:
+                        v = v.rsplit("/", 1)[-1]
+                    extras[target_param] = v
         actions = []
         if actions_def:
             for act_id, act_icon, act_title, act_params in actions_def:
                 act_p = {}
                 for tp, sf in act_params.items():
-                    v = item.get(sf)
+                    sf_strip = sf.startswith("@")
+                    sf_key = sf[1:] if sf_strip else sf
+                    v = _nested_get(item, sf_key) if "." in sf_key else item.get(sf_key)
                     if v is not None:
-                        act_p[tp] = str(v)
+                        v = str(v)
+                        if sf_strip and "/" in v:
+                            v = v.rsplit("/", 1)[-1]
+                        act_p[tp] = v
                 actions.append({"gid": act_id, "icon": act_icon, "title": act_title, "params": act_p})
         chips.append({
             "get_id":   get_id,
             "param":    param_name,
-            "id_field": id_field,
+            "id_field": id_field.rsplit(".", 1)[-1] if "." in id_field else id_field,
             "value":    str(value),
             "label":    label[:60],
             "title":    str(value),
