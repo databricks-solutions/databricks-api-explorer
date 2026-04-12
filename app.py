@@ -438,6 +438,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
 _ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
     "mlflow-runs-search": 6,
+    "pg-projects-list": 5,
     "pg-projects-get": 5,
 }
 
@@ -3771,6 +3772,9 @@ def restore_cached_response(endpoint, cache):
     """Callback 9b: Restore a previously cached response when switching endpoints."""
     if not endpoint:
         return _RESPONSE_EMPTY, None
+    # When _prefill is present, callback 16 already wrote the response — skip
+    if endpoint.get("_prefill"):
+        return no_update, no_update
     ep_id = endpoint.get("id", "")
     cached = (cache or {}).get(ep_id)
     if not cached:
@@ -4077,17 +4081,40 @@ def sync_status_bar(page_state):
     Output("page-ticker", "disabled", allow_duplicate=True),
     Input("page-state", "data"),
     State("response-cache", "data"),
+    State("selected-endpoint", "data"),
     prevent_initial_call=True,
 )
-def render_when_done(page_state, cache):
+def render_when_done(page_state, cache, selected_endpoint):
     """Callback 11c (cont.): Render the merged result once pagination completes."""
     state = page_state or {}
+    ep_id = state.get("endpoint_id", "?")
     if state.get("running") or not state.get("items"):
         return no_update, no_update, no_update
+    # If the user has navigated away from the list endpoint, only update cache
+    current_id = (selected_endpoint or {}).get("id", "")
+    if current_id and current_id != ep_id:
+        initial_data = state.get("initial_data", {})
+        list_key = state.get("list_key")
+        if list_key:
+            merged_data = {**initial_data, list_key: state["items"]}
+            merged_data.pop("next_page_token", None)
+            merged_data.pop("has_more", None)
+            merged_result = {
+                "status_code": state.get("status_code", 200),
+                "elapsed_ms": state.get("elapsed_ms", 0),
+                "data": merged_data, "success": True, "error": None,
+                "url": state.get("url", ""),
+            }
+            chips = extract_chips(ep_id, merged_data)
+            new_cache = dict(cache or {})
+            new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
+            return no_update, new_cache, True
+        return no_update, no_update, True
+
     initial_data = state.get("initial_data", {})
     list_key = state.get("list_key")
     if not list_key:
-        return no_update, no_update
+        return no_update, no_update, True
     merged_data = {**initial_data, list_key: state["items"]}
     merged_data.pop("next_page_token", None)
     merged_data.pop("has_more", None)
