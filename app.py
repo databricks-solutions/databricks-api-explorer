@@ -440,6 +440,7 @@ _ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
     "mlflow-runs-search": 6,
     "pg-projects-list": 5,
     "pg-projects-get": 5,
+    "pg-endpoints-list": 5,
 }
 
 
@@ -4500,6 +4501,7 @@ app.clientside_callback(
     Output("response-cache", "data", allow_duplicate=True),
     Output("spinner-off", "data", allow_duplicate=True),
     Output("last-request", "data", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
     Input("iframe-link-click", "data"),
     State("conn-config", "data"),
     State("response-cache", "data"),
@@ -4508,16 +4510,16 @@ app.clientside_callback(
 def handle_iframe_link_click(link_data, conn_config, cache):
     """Callback 16: Navigate to a *get* endpoint when an inline ID link is clicked."""
     if not link_data:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
     get_id = link_data.get("gid", "")
     param_name = link_data.get("par", "")
     value = link_data.get("val", "")
     if not get_id or not param_name or value == "":
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     extras = link_data.get("ext") or {}
     path = endpoint["path"]
@@ -4539,7 +4541,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     ws_host, ws_token = _resolve_conn(conn_config)
     if not ws_host:
-        return no_update, build_error_panel("No workspace host."), no_update, time.time(), no_update
+        return no_update, build_error_panel("No workspace host."), no_update, time.time(), no_update, no_update
 
     is_account = endpoint.get("scope") == "account"
     if is_account:
@@ -4549,7 +4551,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     if not token:
         msg = "No auth token for the accounts console. Note: Account APIs require account admin privileges in Databricks." if is_account else "No auth token."
-        return no_update, build_error_panel(msg), no_update, time.time(), no_update
+        return no_update, build_error_panel(msg), no_update, time.time(), no_update, no_update
 
     method = endpoint.get("method", "GET")
     body = None
@@ -4592,7 +4594,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         "url": result.get("url", ""),
         "is_account": is_account,
     }
-    return endpoint_with_prefill, build_response_panel(result, chips, endpoint_id=get_id), new_cache, time.time(), last_req
+    return endpoint_with_prefill, build_response_panel(result, chips, endpoint_id=get_id), new_cache, time.time(), last_req, chips or None
 
 
 # 17. Side-panel toggle — pure JS, no server round-trip
