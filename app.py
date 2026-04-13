@@ -1945,6 +1945,7 @@ def build_sql_panel(warehouses):
                 html.Span("s", className="timeout-unit"),
             ], className="timeout-control", title="Query timeout in seconds"),
         ], className="execute-row"),
+        html.Div(id="sql-progress-bar-container", className="sql-progress-container"),
         html.Div([
             html.Div([
                 html.Span([html.I(className="bi bi-terminal me-2"), "curl"], className="curl-label"),
@@ -1955,7 +1956,6 @@ def build_sql_panel(warehouses):
             ], className="curl-header"),
             html.Pre(id="sql-curl-text", className="curl-text font-mono"),
         ], id="sql-curl-display", className="curl-display"),
-        html.Div(id="sql-progress-bar-container", className="sql-progress-container"),
     ], className="endpoint-card")
 
 
