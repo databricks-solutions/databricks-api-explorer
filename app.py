@@ -2355,6 +2355,7 @@ app.layout = html.Div([
     dcc.Store(id="lb-last-request", data=None),         # last Lakebase request for curl display
     dcc.Store(id="lb-curl-dummy", data=None),           # dummy output for Lakebase curl copy CB
     dcc.Store(id="scope-visibility-dummy", data=None),  # dummy for scope visibility toggle
+    dcc.Store(id="nav-history-dummy", data=None),       # dummy output for history push clientside CB
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
     dcc.Store(id="sso-pending", data=None),          # {"host": "..."} while browser OAuth is running
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
@@ -3774,7 +3775,8 @@ def restore_cached_response(endpoint, cache):
     if not endpoint:
         return _RESPONSE_EMPTY, None
     # When _prefill is present, callback 16 already wrote the response — skip
-    if endpoint.get("_prefill"):
+    # (unless _from_history, where we need to restore from cache ourselves)
+    if endpoint.get("_prefill") and not endpoint.get("_from_history"):
         return no_update, no_update
     ep_id = endpoint.get("id", "")
     cached = (cache or {}).get(ep_id)
@@ -5095,6 +5097,33 @@ app.clientside_callback(
     Output("lb-curl-dummy", "data", allow_duplicate=True),
     Input("lb-curl-copy-btn", "n_clicks"),
     prevent_initial_call=True,
+)
+
+
+# 21. Browser history — push state on endpoint navigation, restore on back/forward
+app.clientside_callback(
+    """
+    function(endpoint) {
+        if (!window._navHistoryInstalled) {
+            window._navHistoryInstalled = true;
+            history.replaceState({_navEp: null}, '', '');
+            window.addEventListener('popstate', function(e) {
+                if (!e.state || !('_navEp' in e.state)) return;
+                var ep = e.state._navEp;
+                if (ep) ep._from_history = true;
+                window.dash_clientside.set_props(
+                    'selected-endpoint', {data: ep || null});
+            });
+        }
+        if (endpoint && !endpoint._from_history) {
+            history.pushState({_navEp: endpoint}, '', '');
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("nav-history-dummy", "data"),
+    Input("selected-endpoint", "data"),
+    prevent_initial_call=False,
 )
 
 
