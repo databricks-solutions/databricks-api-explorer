@@ -333,8 +333,8 @@ function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
   var t=typeof val;
   if(t==='boolean')return mkEl('span','jb',String(val));
-  if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
-  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];if(c2)return idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext);var sf=pKey&&SQL_FIELDS[pKey];if(sf){if(sf.table_name&&val!==sf.table_name)return sqlColLink('jv','"'+val+'"',val,sf.full_name);return sqlLink('jv','"'+val+'"',sf.full_name);}return mkEl('span','jv','"'+val+'"');}
+  if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var sv=String(val);var lu0=pKey&&LOOKUP[pKey];var c=lu0&&lu0[sv];return c?idLink('jn',sv,c.gid,c.par,sv,c.ext):mkEl('span','jn',sv);}
+  if(t==='string'){var lu=pKey&&LOOKUP[pKey];var c2=lu&&lu[val];var lv=val;if(!c2&&lu&&val.indexOf('/')>=0){var seg=val.split('/').pop();c2=lu[seg];if(c2)lv=seg;}if(c2)return idLink('jv','"'+val+'"',c2.gid,c2.par,lv,c2.ext);var sf=pKey&&SQL_FIELDS[pKey];if(sf){if(sf.table_name&&val!==sf.table_name)return sqlColLink('jv','"'+val+'"',val,sf.full_name);return sqlLink('jv','"'+val+'"',sf.full_name);}return mkEl('span','jv','"'+val+'"');}
   if(Array.isArray(val))return renderArray(val,depth);
   if(t==='object')return renderObject(val,depth);
   return mkEl('span','jbn',String(val));
@@ -438,7 +438,9 @@ document.addEventListener('DOMContentLoaded',function(){
 
 _ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
     "mlflow-runs-search": 6,
+    "pg-projects-list": 5,
     "pg-projects-get": 5,
+    "pg-endpoints-list": 5,
 }
 
 
@@ -3771,6 +3773,9 @@ def restore_cached_response(endpoint, cache):
     """Callback 9b: Restore a previously cached response when switching endpoints."""
     if not endpoint:
         return _RESPONSE_EMPTY, None
+    # When _prefill is present, callback 16 already wrote the response — skip
+    if endpoint.get("_prefill"):
+        return no_update, no_update
     ep_id = endpoint.get("id", "")
     cached = (cache or {}).get(ep_id)
     if not cached:
@@ -4077,17 +4082,40 @@ def sync_status_bar(page_state):
     Output("page-ticker", "disabled", allow_duplicate=True),
     Input("page-state", "data"),
     State("response-cache", "data"),
+    State("selected-endpoint", "data"),
     prevent_initial_call=True,
 )
-def render_when_done(page_state, cache):
+def render_when_done(page_state, cache, selected_endpoint):
     """Callback 11c (cont.): Render the merged result once pagination completes."""
     state = page_state or {}
+    ep_id = state.get("endpoint_id", "?")
     if state.get("running") or not state.get("items"):
         return no_update, no_update, no_update
+    # If the user has navigated away from the list endpoint, only update cache
+    current_id = (selected_endpoint or {}).get("id", "")
+    if current_id and current_id != ep_id:
+        initial_data = state.get("initial_data", {})
+        list_key = state.get("list_key")
+        if list_key:
+            merged_data = {**initial_data, list_key: state["items"]}
+            merged_data.pop("next_page_token", None)
+            merged_data.pop("has_more", None)
+            merged_result = {
+                "status_code": state.get("status_code", 200),
+                "elapsed_ms": state.get("elapsed_ms", 0),
+                "data": merged_data, "success": True, "error": None,
+                "url": state.get("url", ""),
+            }
+            chips = extract_chips(ep_id, merged_data)
+            new_cache = dict(cache or {})
+            new_cache[ep_id] = {"result": merged_result, "chips": chips or None}
+            return no_update, new_cache, True
+        return no_update, no_update, True
+
     initial_data = state.get("initial_data", {})
     list_key = state.get("list_key")
     if not list_key:
-        return no_update, no_update
+        return no_update, no_update, True
     merged_data = {**initial_data, list_key: state["items"]}
     merged_data.pop("next_page_token", None)
     merged_data.pop("has_more", None)
@@ -4473,6 +4501,7 @@ app.clientside_callback(
     Output("response-cache", "data", allow_duplicate=True),
     Output("spinner-off", "data", allow_duplicate=True),
     Output("last-request", "data", allow_duplicate=True),
+    Output("chips-store", "data", allow_duplicate=True),
     Input("iframe-link-click", "data"),
     State("conn-config", "data"),
     State("response-cache", "data"),
@@ -4481,16 +4510,16 @@ app.clientside_callback(
 def handle_iframe_link_click(link_data, conn_config, cache):
     """Callback 16: Navigate to a *get* endpoint when an inline ID link is clicked."""
     if not link_data:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
     get_id = link_data.get("gid", "")
     param_name = link_data.get("par", "")
     value = link_data.get("val", "")
     if not get_id or not param_name or value == "":
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     endpoint = get_endpoint_by_id(get_id)
     if not endpoint:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     extras = link_data.get("ext") or {}
     path = endpoint["path"]
@@ -4512,7 +4541,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     ws_host, ws_token = _resolve_conn(conn_config)
     if not ws_host:
-        return no_update, build_error_panel("No workspace host."), no_update, time.time(), no_update
+        return no_update, build_error_panel("No workspace host."), no_update, time.time(), no_update, no_update
 
     is_account = endpoint.get("scope") == "account"
     if is_account:
@@ -4522,7 +4551,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     if not token:
         msg = "No auth token for the accounts console. Note: Account APIs require account admin privileges in Databricks." if is_account else "No auth token."
-        return no_update, build_error_panel(msg), no_update, time.time(), no_update
+        return no_update, build_error_panel(msg), no_update, time.time(), no_update, no_update
 
     method = endpoint.get("method", "GET")
     body = None
@@ -4565,7 +4594,7 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         "url": result.get("url", ""),
         "is_account": is_account,
     }
-    return endpoint_with_prefill, build_response_panel(result, chips, endpoint_id=get_id), new_cache, time.time(), last_req
+    return endpoint_with_prefill, build_response_panel(result, chips, endpoint_id=get_id), new_cache, time.time(), last_req, chips or None
 
 
 # 17. Side-panel toggle — pure JS, no server round-trip
