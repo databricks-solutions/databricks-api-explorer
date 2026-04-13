@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update, set_props
 from flask import request as flask_request
 
 from api_catalog import (
@@ -1135,7 +1135,7 @@ def build_sidebar() -> html.Div:
             style={"display": "none"},
         ),
         html.Div(build_sql_catalog_browser(), id="sql-browser-container", style={"display": "none"}),
-        html.Div(id="lakebase-sidebar-placeholder", style={"display": "none"}),
+        html.Div(build_lakebase_browser(), id="lakebase-browser-container", style={"display": "none"}),
     ], id="sidebar", className="sidebar")
 
 
@@ -2063,6 +2063,85 @@ def build_sql_results(result):
     return html.Div(children, className="sql-results")
 
 
+# ── Lakebase Browser (sidebar) ───────────────────────────────────────────────
+
+def _lb_browser_items(names, item_type, active=None):
+    """Build clickable list items for the Lakebase project/branch/endpoint browser."""
+    if not names:
+        return [html.Div("—", className="sql-browser-empty")]
+    items = []
+    for n in names:
+        cls = "sql-browser-item sql-browser-item-active" if n == active else "sql-browser-item"
+        items.append(html.Div(
+            html.Span(n, className="sql-browser-item-name"),
+            id={"type": f"lb-browse-{item_type}", "name": n},
+            className=cls, n_clicks=0,
+        ))
+    return items
+
+
+def build_lakebase_browser(projects=None):
+    """Build the sidebar project/branch/endpoint browser for Lakebase mode."""
+    proj_content = _lb_browser_items(projects, "project") if projects else list(_BROWSER_LOADING)
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-kanban me-1"),
+                "Project",
+            ], className="sql-browser-label"),
+            html.Div(
+                proj_content,
+                id="lb-browser-project-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-diagram-2 me-1"),
+                "Branch",
+            ], className="sql-browser-label"),
+            html.Div(
+                _lb_browser_items([], "branch"),
+                id="lb-browser-branch-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-hdd-network me-1"),
+                "Endpoint",
+            ], className="sql-browser-label"),
+            html.Div(
+                _lb_browser_items([], "endpoint"),
+                id="lb-browser-endpoint-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-collection me-1"),
+                "Schema",
+            ], className="sql-browser-label"),
+            html.Div(
+                _lb_browser_items([], "schema"),
+                id="lb-browser-schema-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-table me-1"),
+                "Table",
+            ], className="sql-browser-label"),
+            html.Div(
+                _lb_browser_items([], "table"),
+                id="lb-browser-table-list",
+                className="sql-browser-list",
+            ),
+        ], className="sql-browser-group"),
+    ], className="sql-catalog-browser")
+
+
 # ── Lakebase Data API Panel ──────────────────────────────────────────────────
 
 def build_lakebase_panel():
@@ -2098,29 +2177,34 @@ def build_lakebase_panel():
                 id="lb-endpoint-url",
                 placeholder="https://your-project.lakebase.databricks.com/api/v1",
                 className="param-input font-mono",
+                debounce=True,
             ),
         ], className="param-row"),
-        # Schema
+        # Schema (selected from sidebar browser or typed)
         html.Div([
             html.Div([
                 html.Span("schema", className="param-name"),
                 dbc.Badge("optional", color="secondary", className="param-badge"),
             ], className="param-label"),
-            html.Div("Database schema to query (appended to the URL path)", className="param-desc"),
+            html.Div("Select from sidebar or type a schema name (default: public)", className="param-desc"),
             dbc.Input(
-                id="lb-schema-input", value="public",
+                id="lb-schema-select",
+                value="",
+                placeholder="public",
                 className="param-input font-mono",
             ),
         ], className="param-row"),
-        # Table (required)
+        # Table (selected from sidebar browser or typed)
         html.Div([
             html.Div([
                 html.Span("table", className="param-name"),
                 dbc.Badge("required", color="danger", className="param-badge"),
             ], className="param-label"),
-            html.Div("Table name to operate on", className="param-desc"),
+            html.Div("Select from sidebar or type a table name", className="param-desc"),
             dbc.Input(
-                id="lb-table-input", placeholder="e.g. clients",
+                id="lb-table-select",
+                value="",
+                placeholder="my_table",
                 className="param-input font-mono",
             ),
         ], className="param-row"),
@@ -2354,6 +2438,9 @@ app.layout = html.Div([
     dcc.Store(id="lb-trigger", data=None, storage_type="memory"),   # fires server-side Lakebase execute
     dcc.Store(id="lb-last-request", data=None),         # last Lakebase request for curl display
     dcc.Store(id="lb-curl-dummy", data=None),           # dummy output for Lakebase curl copy CB
+    dcc.Store(id="lb-project-selected", data=None),     # selected Lakebase project name
+    dcc.Store(id="lb-branch-selected", data=None),      # selected Lakebase branch name
+    dcc.Store(id="lb-browser-spinner-dummy", data=None),  # dummy for Lakebase browser spinner CB
     dcc.Store(id="scope-visibility-dummy", data=None),  # dummy for scope visibility toggle
     dcc.Store(id="nav-history-dummy", data=None),       # dummy output for history push clientside CB
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
@@ -2425,7 +2512,7 @@ app.clientside_callback(
         var ws  = document.getElementById('api-accordion');
         var acc = document.getElementById('api-accordion-account');
         var sql = document.getElementById('sql-browser-container');
-        var lb  = document.getElementById('lakebase-sidebar-placeholder');
+        var lb  = document.getElementById('lakebase-browser-container');
         var sidebar = document.getElementById('sidebar');
         if (ws)  ws.style.display  = scope === 'workspace' ? '' : 'none';
         if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
@@ -5017,8 +5104,8 @@ app.clientside_callback(
 
             window.dash_clientside.set_props('lb-trigger', {data: {
                 endpoint_url: getVal('lb-endpoint-url'),
-                schema: getVal('lb-schema-input'),
-                table: getVal('lb-table-input'),
+                schema: getVal('lb-schema-select'),
+                table: getVal('lb-table-select'),
                 method: getVal('lb-method-select'),
                 select: getVal('lb-select-input'),
                 filter: getVal('lb-filter-input'),
@@ -5097,6 +5184,388 @@ app.clientside_callback(
     Output("lb-curl-dummy", "data", allow_duplicate=True),
     Input("lb-curl-copy-btn", "n_clicks"),
     prevent_initial_call=True,
+)
+
+
+# 20e. Fetch Lakebase projects when scope switches to "lakebase"
+@app.callback(
+    Output("lb-browser-project-list", "children", allow_duplicate=True),
+    Input("api-scope", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def fetch_lb_projects(scope, conn_config):
+    """Callback 20e: Populate the project list after Lakebase scope is activated."""
+    if scope != "lakebase":
+        return no_update
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return _lb_browser_items([], "project")
+    result = make_api_call("GET", "/api/2.0/postgres/projects", token, host, timeout=10)
+    if result.get("success"):
+        items = result["data"].get("projects", []) if isinstance(result["data"], dict) else []
+        names = []
+        for item in items:
+            name = item.get("name", "")
+            # Strip resource-path prefix: "projects/my-proj" → "my-proj"
+            if "/" in name:
+                name = name.rsplit("/", 1)[-1]
+            if name:
+                names.append(name)
+        return _lb_browser_items(sorted(names), "project")
+    return _lb_browser_items([], "project")
+
+
+# 20f. Lakebase browser: project clicked → fetch branches, highlight, reset endpoints
+@app.callback(
+    Output("lb-browser-project-list", "children"),
+    Output("lb-browser-branch-list", "children"),
+    Output("lb-browser-endpoint-list", "children"),
+    Output("lb-project-selected", "data"),
+    Input({"type": "lb-browse-project", "name": ALL}, "n_clicks"),
+    State({"type": "lb-browse-project", "name": ALL}, "id"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def lb_browser_project_clicked(n_clicks_list, btn_ids, conn_config):
+    """Callback 20f: Fetch branches when a project is clicked in the Lakebase browser."""
+    if not ctx.triggered or not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    names = [b["name"] for b in btn_ids]
+    proj_items = _lb_browser_items(names, "project", active=clicked_name)
+    # Fetch branches
+    host, token = _resolve_conn(conn_config)
+    branch_names = []
+    if host and token:
+        result = make_api_call("GET", f"/api/2.0/postgres/projects/{clicked_name}/branches",
+                               token, host, timeout=10)
+        if result.get("success"):
+            items = result["data"].get("branches", []) if isinstance(result["data"], dict) else []
+            for item in items:
+                name = item.get("name", "")
+                if "/" in name:
+                    name = name.rsplit("/", 1)[-1]
+                if name:
+                    branch_names.append(name)
+    branch_items = _lb_browser_items(sorted(branch_names), "branch")
+    endpoint_items = _lb_browser_items([], "endpoint")
+    return proj_items, branch_items, endpoint_items, clicked_name
+
+
+# 20g. Lakebase browser: branch clicked → fetch endpoints, highlight
+@app.callback(
+    Output("lb-branch-selected", "data"),
+    Input({"type": "lb-browse-branch", "name": ALL}, "n_clicks"),
+    State({"type": "lb-browse-branch", "name": ALL}, "id"),
+    State("lb-project-selected", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def lb_browser_branch_clicked(n_clicks_list, btn_ids, project, conn_config):
+    """Callback 20g: Fetch endpoints when a branch is clicked in the Lakebase browser."""
+    if not ctx.triggered or not any(n_clicks_list) or not project:
+        return no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    names = [b["name"] for b in btn_ids]
+    branch_items = _lb_browser_items(names, "branch", active=clicked_name)
+    set_props("lb-browser-branch-list", {"children": branch_items})
+    # Fetch endpoints
+    host, token = _resolve_conn(conn_config)
+    ep_names = []
+    if host and token:
+        result = make_api_call(
+            "GET", f"/api/2.0/postgres/projects/{project}/branches/{clicked_name}/endpoints",
+            token, host, timeout=10)
+        if result.get("success"):
+            items = result["data"].get("endpoints", []) if isinstance(result["data"], dict) else []
+            for item in items:
+                name = item.get("name", "")
+                if "/" in name:
+                    name = name.rsplit("/", 1)[-1]
+                if name:
+                    ep_names.append(name)
+    endpoint_items = _lb_browser_items(sorted(ep_names), "endpoint")
+    set_props("lb-browser-endpoint-list", {"children": endpoint_items})
+    return clicked_name
+
+
+# 20h. Lakebase browser: endpoint clicked → fetch details, populate endpoint_url + schemas
+@app.callback(
+    Output("lb-browser-spinner-dummy", "data", allow_duplicate=True),
+    Input({"type": "lb-browse-endpoint", "name": ALL}, "n_clicks"),
+    State({"type": "lb-browse-endpoint", "name": ALL}, "id"),
+    State("lb-project-selected", "data"),
+    State("lb-branch-selected", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def lb_browser_endpoint_clicked(n_clicks_list, btn_ids, project, branch, conn_config):
+    """Callback 20h: Populate the Lakebase form when an endpoint is clicked."""
+    if not ctx.triggered or not any(n_clicks_list) or not project or not branch:
+        return no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    names = [b["name"] for b in btn_ids]
+    ep_items = _lb_browser_items(names, "endpoint", active=clicked_name)
+    set_props("lb-browser-endpoint-list", {"children": ep_items})
+    # Fetch endpoint details to get the host
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return no_update
+    api_path = f"/api/2.0/postgres/projects/{project}/branches/{branch}/endpoints/{clicked_name}"
+    result = make_api_call("GET", api_path, token, host, timeout=10)
+    if not result.get("success") or not isinstance(result["data"], dict):
+        return no_update
+    status = result["data"].get("status") or {}
+    hosts = status.get("hosts") or {}
+    ep_host = hosts.get("host") or status.get("host", "")
+    if not ep_host:
+        return no_update
+    # Build the Data API URL — need workspace ID from the workspace host
+    import re
+    ws_id = ""
+    # Azure: adb-{id}.{n}.azuredatabricks.net
+    m = re.search(r"adb-(\d+)", host)
+    if m:
+        ws_id = m.group(1)
+    else:
+        # AWS / GCP: read X-Databricks-Org-Id header from any API call
+        try:
+            r = requests.get(
+                f"{host.rstrip('/')}/api/2.0/clusters/list",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"page_size": "1"}, timeout=5,
+            )
+            ws_id = r.headers.get("X-Databricks-Org-Id", "")
+        except Exception:
+            pass
+    if ws_id:
+        endpoint_url = f"https://{ep_host}/api/2.0/workspace/{ws_id}/rest/databricks_postgres"
+    else:
+        endpoint_url = f"https://{ep_host}"
+    set_props("lb-endpoint-url", {"value": endpoint_url})
+    # Populate sidebar schema list
+    schemas = _lb_fetch_schemas(endpoint_url, token)
+    schema_items = _lb_browser_items(schemas, "schema")
+    set_props("lb-browser-schema-list", {"children": schema_items})
+    set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
+    return no_update
+
+
+def _lb_pg_connect(endpoint_url, token):
+    """Open a direct PG wire-protocol connection to a Lakebase endpoint.
+
+    Extracts the hostname from *endpoint_url* and derives the PG username
+    from the JWT ``sub`` claim in *token*.  Returns a ``psycopg2``
+    connection or ``None`` on failure.
+    """
+    try:
+        import psycopg2, json, base64
+        from urllib.parse import urlparse
+        pg_host = urlparse(endpoint_url).hostname
+        if not pg_host:
+            return None
+        # Derive PG role name from the OAuth token's "sub" claim
+        payload = token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        pg_user = claims.get("sub") or claims.get("email") or ""
+        if not pg_user:
+            return None
+        return psycopg2.connect(
+            host=pg_host, port=5432, dbname="databricks_postgres",
+            user=pg_user, password=token,
+            sslmode="require", connect_timeout=10,
+        )
+    except Exception:
+        return None
+
+
+def _lb_fetch_schemas(endpoint_url, token):
+    """Fetch schema names via direct PG connection to the Lakebase endpoint."""
+    conn = _lb_pg_connect(endpoint_url, token)
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT schema_name FROM information_schema.schemata "
+                "WHERE schema_name NOT IN ('information_schema','pg_catalog','pg_toast') "
+                "AND schema_name NOT LIKE 'pg_%%' "
+                "ORDER BY schema_name"
+            )
+            schemas = [row[0] for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            if schemas:
+                return schemas
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return ["public"]
+
+
+def _lb_fetch_tables(endpoint_url, schema, token):
+    """Fetch table names for *schema* via direct PG connection."""
+    if not schema:
+        return []
+    conn = _lb_pg_connect(endpoint_url, token)
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = %s AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name",
+                (schema,),
+            )
+            tables = [row[0] for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            return tables
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return []
+
+
+# 20h2. Endpoint URL changed → fetch schemas and populate sidebar + stores
+@app.callback(
+    Output("lb-schema-select", "value"),
+    Output("lb-table-select", "value"),
+    Input("lb-endpoint-url", "value"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def lb_endpoint_url_changed(endpoint_url, conn_config):
+    """Callback 20h2: Fetch schemas when endpoint URL is set or pasted."""
+    if not endpoint_url or not endpoint_url.strip().startswith("http"):
+        set_props("lb-browser-schema-list", {"children": _lb_browser_items([], "schema")})
+        set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
+        return "", ""
+    url = endpoint_url.strip().rstrip("/")
+    _, token = _resolve_conn(conn_config)
+    if not token:
+        return "", ""
+    schemas = _lb_fetch_schemas(url, token)
+    default_schema = "public" if "public" in schemas else (schemas[0] if schemas else None)
+    tables = _lb_fetch_tables(url, default_schema, token) if default_schema else []
+    # Populate sidebar
+    schema_items = _lb_browser_items(schemas, "schema", active=default_schema)
+    set_props("lb-browser-schema-list", {"children": schema_items})
+    if tables:
+        table_items = _lb_browser_items(tables, "table")
+    else:
+        table_items = [html.Div(
+            "No tables found in this schema",
+            className="sql-browser-empty",
+            style={"fontSize": "11px", "lineHeight": "1.3", "padding": "4px 8px"},
+        )]
+    set_props("lb-browser-table-list", {"children": table_items})
+    return default_schema or "", ""
+
+
+# 20h4. Sidebar schema clicked → fetch tables, update sidebar + form dropdowns
+@app.callback(
+    Output("lb-browser-spinner-dummy", "data", allow_duplicate=True),
+    Input({"type": "lb-browse-schema", "name": ALL}, "n_clicks"),
+    State({"type": "lb-browse-schema", "name": ALL}, "id"),
+    State("lb-endpoint-url", "value"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def lb_browser_schema_clicked(n_clicks_list, btn_ids, endpoint_url, conn_config):
+    """Callback 20h4: Sidebar schema clicked → populate tables in sidebar + set form dropdown."""
+    if not ctx.triggered or not any(n_clicks_list) or not endpoint_url:
+        return no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    # Highlight the clicked schema
+    names = [b["name"] for b in btn_ids]
+    schema_items = _lb_browser_items(names, "schema", active=clicked_name)
+    set_props("lb-browser-schema-list", {"children": schema_items})
+    # Set the form schema dropdown
+    set_props("lb-schema-select", {"value": clicked_name})
+    # Fetch tables for this schema
+    _, token = _resolve_conn(conn_config)
+    if not token:
+        set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
+        return no_update
+    url = endpoint_url.strip().rstrip("/")
+    tables = _lb_fetch_tables(url, clicked_name, token)
+    if tables:
+        table_items = _lb_browser_items(tables, "table")
+    else:
+        table_items = [html.Div(
+            "No tables found in this schema",
+            className="sql-browser-empty",
+            style={"fontSize": "11px", "lineHeight": "1.3", "padding": "4px 8px"},
+        )]
+    set_props("lb-browser-table-list", {"children": table_items})
+    # Update the table store
+    set_props("lb-table-select", {"value": ""})
+    return no_update
+
+
+# 20h5. Sidebar table clicked → set the form table dropdown
+@app.callback(
+    Output("lb-browser-spinner-dummy", "data", allow_duplicate=True),
+    Input({"type": "lb-browse-table", "name": ALL}, "n_clicks"),
+    State({"type": "lb-browse-table", "name": ALL}, "id"),
+    prevent_initial_call=True,
+)
+def lb_browser_table_clicked(n_clicks_list, btn_ids):
+    """Callback 20h5: Sidebar table clicked → set form table dropdown."""
+    if not ctx.triggered or not any(n_clicks_list):
+        return no_update
+    clicked_name = json.loads(ctx.triggered[0]["prop_id"].split(".")[0])["name"]
+    # Highlight the clicked table
+    names = [b["name"] for b in btn_ids]
+    table_items = _lb_browser_items(names, "table", active=clicked_name)
+    set_props("lb-browser-table-list", {"children": table_items})
+    # Set the table store
+    set_props("lb-table-select", {"value": clicked_name})
+    return no_update
+
+
+# 20i. Show loading spinner immediately when a Lakebase browser item is clicked
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._lbBrowserSpinnerInstalled) return window.dash_clientside.no_update;
+        window._lbBrowserSpinnerInstalled = true;
+        var spinner = {props: {className: 'sql-browser-spinner'}, type: 'Div', namespace: 'dash_html_components'};
+        var empty = {props: {children: '\u2014', className: 'sql-browser-empty'}, type: 'Div', namespace: 'dash_html_components'};
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.sql-browser-item');
+            if (!btn) return;
+            var list = btn.closest('.sql-browser-list');
+            if (!list) return;
+            var id = list.id;
+            if (id === 'lb-browser-project-list') {
+                window.dash_clientside.set_props('lb-browser-branch-list', {children: [spinner]});
+                window.dash_clientside.set_props('lb-browser-endpoint-list', {children: [empty]});
+                window.dash_clientside.set_props('lb-browser-schema-list', {children: [empty]});
+                window.dash_clientside.set_props('lb-browser-table-list', {children: [empty]});
+            } else if (id === 'lb-browser-branch-list') {
+                window.dash_clientside.set_props('lb-browser-endpoint-list', {children: [spinner]});
+                window.dash_clientside.set_props('lb-browser-schema-list', {children: [empty]});
+                window.dash_clientside.set_props('lb-browser-table-list', {children: [empty]});
+            } else if (id === 'lb-browser-endpoint-list') {
+                window.dash_clientside.set_props('lb-browser-schema-list', {children: [spinner]});
+                window.dash_clientside.set_props('lb-browser-table-list', {children: [empty]});
+            } else if (id === 'lb-browser-schema-list') {
+                window.dash_clientside.set_props('lb-browser-table-list', {children: [spinner]});
+            }
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("lb-browser-spinner-dummy", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
 )
 
 
