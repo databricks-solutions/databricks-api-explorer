@@ -333,8 +333,8 @@ function renderValue(val,pKey,depth){
   if(val===null)return mkEl('span','jbn','null');
   var t=typeof val;
   if(t==='boolean')return mkEl('span','jb',String(val));
-  if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var c=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][String(val)];return c?idLink('jn',String(val),c.gid,c.par,String(val),c.ext):mkEl('span','jn',String(val));}
-  if(t==='string'){var c2=pKey&&LOOKUP[pKey]&&LOOKUP[pKey][val];if(c2)return idLink('jv','"'+val+'"',c2.gid,c2.par,val,c2.ext);var sf=pKey&&SQL_FIELDS[pKey];if(sf){if(sf.table_name&&val!==sf.table_name)return sqlColLink('jv','"'+val+'"',val,sf.full_name);return sqlLink('jv','"'+val+'"',sf.full_name);}return mkEl('span','jv','"'+val+'"');}
+  if(t==='number'){var ms=isEpoch(val,pKey);if(ms)return tsSpan('jn',String(val),ms);var sv=String(val);var lu0=pKey&&LOOKUP[pKey];var c=lu0&&lu0[sv];return c?idLink('jn',sv,c.gid,c.par,sv,c.ext):mkEl('span','jn',sv);}
+  if(t==='string'){var lu=pKey&&LOOKUP[pKey];var c2=lu&&lu[val];var lv=val;if(!c2&&lu&&val.indexOf('/')>=0){var seg=val.split('/').pop();c2=lu[seg];if(c2)lv=seg;}if(c2)return idLink('jv','"'+val+'"',c2.gid,c2.par,lv,c2.ext);var sf=pKey&&SQL_FIELDS[pKey];if(sf){if(sf.table_name&&val!==sf.table_name)return sqlColLink('jv','"'+val+'"',val,sf.full_name);return sqlLink('jv','"'+val+'"',sf.full_name);}return mkEl('span','jv','"'+val+'"');}
   if(Array.isArray(val))return renderArray(val,depth);
   if(t==='object')return renderObject(val,depth);
   return mkEl('span','jbn',String(val));

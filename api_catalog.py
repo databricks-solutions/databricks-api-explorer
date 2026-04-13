@@ -1039,6 +1039,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "pg-branches-list":           ("pg-branches-get",        "branches",           "@name",               "branch_id",  None, {"project_id": "@parent"}, [
                                       ("pg-endpoints-list", "bi-hdd-network", "List Endpoints", {"project_id": "@parent", "branch_id": "@name"}),
                                   ]),
+    "pg-endpoints-list":          ("pg-endpoints-get",       "endpoints",          "@name",               "endpoint_id", None, {"project_id": "@@parent", "branch_id": "@parent"}),
     "pg-projects-list":           ("pg-projects-get",        "projects",           "@name",               "project_id", None, None, [
                                       ("pg-branches-list", "bi-diagram-2", "List Branches", {"project_id": "@name"}),
                                   ]),
@@ -1663,12 +1664,16 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         extras = {}
         if extra_params:
             for target_param, source_field in extra_params.items():
-                sf_strip = source_field.startswith("@")
-                sf_key = source_field[1:] if sf_strip else source_field
+                sf_grandparent = source_field.startswith("@@")
+                sf_strip = source_field.startswith("@") and not sf_grandparent
+                sf_key = source_field[2:] if sf_grandparent else (source_field[1:] if sf_strip else source_field)
                 v = _nested_get(item, sf_key) if "." in sf_key else item.get(sf_key)
                 if v is not None:
                     v = str(v)
-                    if sf_strip and "/" in v:
+                    if sf_grandparent and "/" in v:
+                        parts = v.split("/")
+                        v = "/".join(parts[:-2]).rsplit("/", 1)[-1] if len(parts) > 2 else v
+                    elif sf_strip and "/" in v:
                         v = v.rsplit("/", 1)[-1]
                     extras[target_param] = v
         actions = []
@@ -1676,12 +1681,16 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
             for act_id, act_icon, act_title, act_params in actions_def:
                 act_p = {}
                 for tp, sf in act_params.items():
-                    sf_strip = sf.startswith("@")
-                    sf_key = sf[1:] if sf_strip else sf
+                    sf_gp = sf.startswith("@@")
+                    sf_strip = sf.startswith("@") and not sf_gp
+                    sf_key = sf[2:] if sf_gp else (sf[1:] if sf_strip else sf)
                     v = _nested_get(item, sf_key) if "." in sf_key else item.get(sf_key)
                     if v is not None:
                         v = str(v)
-                        if sf_strip and "/" in v:
+                        if sf_gp and "/" in v:
+                            parts = v.split("/")
+                            v = "/".join(parts[:-2]).rsplit("/", 1)[-1] if len(parts) > 2 else v
+                        elif sf_strip and "/" in v:
                             v = v.rsplit("/", 1)[-1]
                         act_p[tp] = v
                 actions.append({"gid": act_id, "icon": act_icon, "title": act_title, "params": act_p})
