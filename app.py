@@ -4940,6 +4940,117 @@ app.clientside_callback(
 
 # ── Lakebase Data API callbacks ──────────────────────────────────────────────
 
+
+def _lb_pg_query(endpoint_url, schema, table, token, *,
+                 select="", filter_str="", order="", limit_val=None, offset_val=None):
+    """Execute a SELECT via PG wire protocol as fallback when the REST API fails.
+
+    Returns a result dict compatible with ``build_lakebase_results`` or ``None``
+    if the connection itself fails.
+    """
+    conn = _lb_pg_connect(endpoint_url, token)
+    if not conn:
+        return None
+    try:
+        from psycopg2 import sql as psql
+        cur = conn.cursor()
+        # Columns
+        cols = "*"
+        if select:
+            col_names = [c.strip() for c in select.split(",") if c.strip()]
+            cols = ", ".join(psql.Identifier(c).as_string(conn) for c in col_names) if col_names else "*"
+
+        base = f"SELECT {cols} FROM {psql.Identifier(schema).as_string(conn)}.{psql.Identifier(table).as_string(conn)}"
+
+        # WHERE clauses from filter_str (col=eq.value format from PostgREST convention)
+        where_parts, params = [], []
+        if filter_str:
+            for line in filter_str.split("\n"):
+                line = line.strip()
+                if "=" not in line:
+                    continue
+                col, _, rest = line.partition("=")
+                col = col.strip()
+                if not col or not rest.strip():
+                    continue
+                op_map = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<=",
+                          "neq": "!=", "like": "LIKE", "ilike": "ILIKE"}
+                matched = False
+                for prefix, sql_op in op_map.items():
+                    tag = f"{prefix}."
+                    if rest.strip().startswith(tag):
+                        val = rest.strip()[len(tag):]
+                        where_parts.append(f"{psql.Identifier(col).as_string(conn)} {sql_op} %s")
+                        params.append(val)
+                        matched = True
+                        break
+                if not matched:
+                    where_parts.append(f"{psql.Identifier(col).as_string(conn)} = %s")
+                    params.append(rest.strip())
+
+        query = base
+        if where_parts:
+            query += " WHERE " + " AND ".join(where_parts)
+
+        # ORDER BY
+        if order:
+            order_parts = []
+            for part in order.split(","):
+                part = part.strip()
+                if part.endswith(".desc"):
+                    order_parts.append(f"{psql.Identifier(part[:-5].strip()).as_string(conn)} DESC")
+                elif part.endswith(".asc"):
+                    order_parts.append(f"{psql.Identifier(part[:-4].strip()).as_string(conn)} ASC")
+                elif part:
+                    order_parts.append(psql.Identifier(part).as_string(conn))
+            if order_parts:
+                query += " ORDER BY " + ", ".join(order_parts)
+
+        # LIMIT / OFFSET
+        limit_int = None
+        if limit_val:
+            try:
+                limit_int = int(limit_val)
+                query += f" LIMIT {limit_int}"
+            except (ValueError, TypeError):
+                pass
+        if offset_val:
+            try:
+                off = int(offset_val)
+                if off > 0:
+                    query += f" OFFSET {off}"
+            except (ValueError, TypeError):
+                pass
+
+        if limit_int is None:
+            query += " LIMIT 100"
+
+        t0 = time.perf_counter()
+        cur.execute(query, params or None)
+        col_names = [desc[0] for desc in cur.description]
+        rows = [dict(zip(col_names, row)) for row in cur.fetchall()]
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        cur.close()
+        conn.close()
+        return {
+            "status_code": 200,
+            "elapsed_ms": elapsed_ms,
+            "data": rows,
+            "success": True,
+        }
+    except Exception as exc:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {
+            "status_code": 500,
+            "elapsed_ms": 0,
+            "data": {"error": f"PG query failed: {exc}"},
+            "success": False,
+        }
+
+
 # 20a. Execute Lakebase request (triggered by lb-trigger store, written by clientside 20b)
 @app.callback(
     Output("response-container", "children", allow_duplicate=True),
@@ -5032,12 +5143,28 @@ def execute_lakebase_request(trigger, conn_config):
             data = response.json()
         except ValueError:
             data = {"_raw": response.text[:5000]}
-        result = {
-            "status_code": response.status_code,
-            "elapsed_ms": elapsed_ms,
-            "data": data,
-            "success": 200 <= response.status_code < 300,
-        }
+
+        # Fallback: if REST API returns 403 role error, query via PG wire protocol
+        if response.status_code == 403 and method == "GET" and "permission denied to set role" in str(data):
+            pg_result = _lb_pg_query(endpoint_url, schema, table, token,
+                                     select=select, filter_str=filter_str,
+                                     order=order, limit_val=limit_val, offset_val=offset_val)
+            if pg_result is not None:
+                result = pg_result
+            else:
+                result = {
+                    "status_code": response.status_code,
+                    "elapsed_ms": elapsed_ms,
+                    "data": data,
+                    "success": False,
+                }
+        else:
+            result = {
+                "status_code": response.status_code,
+                "elapsed_ms": elapsed_ms,
+                "data": data,
+                "success": 200 <= response.status_code < 300,
+            }
     except requests.RequestException as e:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         result = {
@@ -5407,7 +5534,7 @@ def _lb_fetch_schemas(endpoint_url, token):
 
 
 def _lb_fetch_tables(endpoint_url, schema, token):
-    """Fetch table names for *schema* via direct PG connection."""
+    """Fetch table and view names for *schema* via direct PG connection."""
     if not schema:
         return []
     conn = _lb_pg_connect(endpoint_url, token)
@@ -5416,7 +5543,7 @@ def _lb_fetch_tables(endpoint_url, schema, token):
             cur = conn.cursor()
             cur.execute(
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = %s AND table_type = 'BASE TABLE' "
+                "WHERE table_schema = %s "
                 "ORDER BY table_name",
                 (schema,),
             )
