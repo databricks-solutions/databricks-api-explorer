@@ -122,7 +122,8 @@ body {
   scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 /* When the SQL catalog browser is active, prevent sidebar scroll — lists scroll individually */
-.sidebar.sql-active {
+.sidebar.sql-active,
+.sidebar.lakebase-active {
   overflow: hidden;
 }
 
@@ -1752,7 +1753,8 @@ body {
 }
 
 /* ── SQL Catalog Browser (sidebar) ────────────────────────────────── */
-#sql-browser-container {
+#sql-browser-container,
+#lakebase-browser-container {
   display: flex;
   flex-direction: column;
   flex: 1;
