@@ -3589,7 +3589,7 @@ def poll_sso(n_intervals):
     # Find the host that has a pending or completed SSO flow
     with _sso_lock:
         host = None
-        for h, res in _sso_result.items():
+        for h, _res in _sso_result.items():
             host = h
             break
     if not host:
@@ -4890,9 +4890,9 @@ def update_curl_display(last_req, conn_config):
         return "", {"display": "none"}
     ws_host, ws_token = _resolve_conn(conn_config)
     if last_req.get("is_account") and ws_host:
-        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+        _, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
     else:
-        host, token = ws_host, ws_token
+        token = ws_token
     method = last_req.get("method", "GET")
     base_url = last_req.get("url", "")
     query_params = last_req.get("query_params") or {}
@@ -4948,10 +4948,10 @@ def update_sql_curl_display(sql_req, conn_config):
     body = sql_req.get("body", {})
     full_url = f"{host}/api/2.0/sql/statements"
     lines = [
-        f"curl -X POST \\",
+        "curl -X POST \\",
         f"  '{full_url}' \\",
         f"  -H 'Authorization: Bearer {token}' \\",
-        f"  -H 'Content-Type: application/json' \\",
+        "  -H 'Content-Type: application/json' \\",
         f"  -d '{json.dumps(body, separators=(',', ':'))}'",
     ]
     return "\n".join(lines), {"display": "block"}
