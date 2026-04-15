@@ -768,6 +768,18 @@ def _resolve_conn(
     return resolve_local_connection(conn_config or _DEFAULT_CONN)
 
 
+def _resolve_conn_obo(conn_config: Optional[Dict]) -> tuple:
+    """Like ``_resolve_conn`` but always prefer the OBO user token in App mode.
+
+    Lakebase PG connections and the Data API require the end-user's
+    identity, not the service principal.  In local mode this behaves
+    identically to ``_resolve_conn``.
+    """
+    if IS_DATABRICKS_APP:
+        return get_host(), flask_request.headers.get("X-Forwarded-Access-Token")
+    return resolve_local_connection(conn_config or _DEFAULT_CONN)
+
+
 def _accounts_host(workspace_host: str) -> str:
     """Derive the Databricks accounts console URL from a workspace host.
 
@@ -5122,7 +5134,7 @@ def execute_lakebase_request(trigger, conn_config):
     if not table:
         return build_error_panel("Please enter a table name."), no_update
 
-    _, token = _resolve_conn(conn_config)
+    _, token = _resolve_conn_obo(conn_config)
     if not token:
         return build_error_panel("No connection. Configure a connection in the user menu."), no_update
 
@@ -5311,7 +5323,7 @@ def update_lb_curl_display(lb_req, conn_config):
     """Callback 20c: Build a ready-to-copy ``curl`` command from the last Lakebase request."""
     if not lb_req:
         return "", {"display": "none"}
-    _, token = _resolve_conn(conn_config)
+    _, token = _resolve_conn_obo(conn_config)
     method = lb_req.get("method", "GET")
     base_url = lb_req.get("url", "")
     query_params = lb_req.get("query_params") or {}
@@ -5367,7 +5379,7 @@ def fetch_lb_projects(scope, conn_config):
     """Callback 20e: Populate the project list after Lakebase scope is activated."""
     if scope != "lakebase":
         return no_update
-    host, token = _resolve_conn(conn_config)
+    host, token = _resolve_conn_obo(conn_config)
     if not host or not token:
         return _lb_browser_items([], "project")
     result = make_api_call("GET", "/api/2.0/postgres/projects", token, host, timeout=10)
@@ -5404,7 +5416,7 @@ def lb_browser_project_clicked(n_clicks_list, btn_ids, conn_config):
     names = [b["name"] for b in btn_ids]
     proj_items = _lb_browser_items(names, "project", active=clicked_name)
     # Fetch branches
-    host, token = _resolve_conn(conn_config)
+    host, token = _resolve_conn_obo(conn_config)
     branch_names = []
     if host and token:
         result = make_api_call("GET", f"/api/2.0/postgres/projects/{clicked_name}/branches",
@@ -5440,7 +5452,7 @@ def lb_browser_branch_clicked(n_clicks_list, btn_ids, project, conn_config):
     branch_items = _lb_browser_items(names, "branch", active=clicked_name)
     set_props("lb-browser-branch-list", {"children": branch_items})
     # Fetch endpoints
-    host, token = _resolve_conn(conn_config)
+    host, token = _resolve_conn_obo(conn_config)
     ep_names = []
     if host and token:
         result = make_api_call(
@@ -5478,7 +5490,7 @@ def lb_browser_endpoint_clicked(n_clicks_list, btn_ids, project, branch, conn_co
     ep_items = _lb_browser_items(names, "endpoint", active=clicked_name)
     set_props("lb-browser-endpoint-list", {"children": ep_items})
     # Fetch endpoint details to get the host
-    host, token = _resolve_conn(conn_config)
+    host, token = _resolve_conn_obo(conn_config)
     if not host or not token:
         return no_update
     api_path = f"/api/2.0/postgres/projects/{project}/branches/{branch}/endpoints/{clicked_name}"
@@ -5513,8 +5525,9 @@ def lb_browser_endpoint_clicked(n_clicks_list, btn_ids, project, branch, conn_co
     else:
         endpoint_url = f"https://{ep_host}"
     set_props("lb-endpoint-url", {"value": endpoint_url})
-    # Populate sidebar schema list
-    schemas = _lb_fetch_schemas(endpoint_url, token)
+    # Populate sidebar schema list — PG needs user token, not SP
+    _, user_token = _resolve_conn_obo(conn_config)
+    schemas = _lb_fetch_schemas(endpoint_url, user_token or token)
     schema_items = _lb_browser_items(schemas, "schema")
     set_props("lb-browser-schema-list", {"children": schema_items})
     set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
@@ -5616,7 +5629,7 @@ def lb_endpoint_url_changed(endpoint_url, conn_config):
         set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
         return "", ""
     url = endpoint_url.strip().rstrip("/")
-    _, token = _resolve_conn(conn_config)
+    _, token = _resolve_conn_obo(conn_config)
     if not token:
         return "", ""
     schemas = _lb_fetch_schemas(url, token)
@@ -5658,7 +5671,7 @@ def lb_browser_schema_clicked(n_clicks_list, btn_ids, endpoint_url, conn_config)
     # Set the form schema dropdown
     set_props("lb-schema-select", {"value": clicked_name})
     # Fetch tables for this schema
-    _, token = _resolve_conn(conn_config)
+    _, token = _resolve_conn_obo(conn_config)
     if not token:
         set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
         return no_update
