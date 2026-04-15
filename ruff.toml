@@ -1,0 +1,21 @@
+target-version = "py312"
+line-length = 140
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "B",    # flake8-bugbear
+]
+ignore = [
+    "E501",   # line too long
+    "E741",   # ambiguous variable name (l, O, I)
+    "E401",   # multiple imports on one line (used sparingly in lazy imports)
+    "B905",   # zip strict
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S", "B"]
+
+[format]
+quote-style = "double"

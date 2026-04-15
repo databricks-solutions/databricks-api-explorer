@@ -1109,6 +1109,8 @@ def build_sidebar() -> html.Div:
             clearable=False,
             searchable=False,
             className="scope-dropdown",
+            persistence=True,
+            persistence_type="session",
         ),
     ], className="scope-switcher")
 
@@ -2402,6 +2404,13 @@ WELCOME = html.Div([
             html.Div([html.I(className="bi bi-shield-check-fill me-2", style={"color": "#00d4ff"}), "OBO + SSO auth"], className="stat-pill"),
         ], className="welcome-stats"),
     ], className="welcome-content"),
+    # Hidden placeholders so Dash callback validation sees these IDs at startup.
+    # They are replaced by the real dbc.Input elements when build_lakebase_panel() renders.
+    html.Div([
+        dbc.Input(id="lb-endpoint-url", debounce=True),
+        dbc.Input(id="lb-schema-select"),
+        dbc.Input(id="lb-table-select"),
+    ], style={"display": "none"}),
 ], className="welcome-panel")
 
 
@@ -2500,7 +2509,6 @@ app.clientside_callback(
     """,
     Output("api-scope", "data"),
     Input("scope-dropdown", "value"),
-    prevent_initial_call=True,
 )
 
 
@@ -2559,7 +2567,7 @@ def fetch_sql_catalogs(scope, conn_config):
     State("selected-endpoint", "data"),
     State("cloud-provider", "data"),
     State("response-cache", "data"),
-    prevent_initial_call=True,
+    prevent_initial_call="initial_duplicate",
 )
 def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
     """Callback 0c: Show the SQL/Lakebase editor when those scopes activate; restore API view otherwise."""
@@ -3581,7 +3589,7 @@ def poll_sso(n_intervals):
     # Find the host that has a pending or completed SSO flow
     with _sso_lock:
         host = None
-        for h, res in _sso_result.items():
+        for h, _res in _sso_result.items():
             host = h
             break
     if not host:
@@ -3618,12 +3626,42 @@ def poll_sso(n_intervals):
     Output("selected-endpoint", "data", allow_duplicate=True),
     Output("response-container", "children", allow_duplicate=True),
     Output("chips-store", "data", allow_duplicate=True),
+    Output("lb-browser-project-list", "children", allow_duplicate=True),
+    Output("lb-browser-branch-list", "children", allow_duplicate=True),
+    Output("lb-browser-endpoint-list", "children", allow_duplicate=True),
+    Output("lb-project-selected", "data", allow_duplicate=True),
     Input("conn-config", "data"),
+    State("api-scope", "data"),
     prevent_initial_call=True,
 )
-def clear_caches_on_connect(_conn_config):
+def clear_caches_on_connect(conn_config, scope):
     """Callback 6c: Reset all cached API outputs when the connection profile changes."""
-    return {}, None, _RESPONSE_EMPTY, None
+    # Clear Lakebase browser state (schema/table lists + endpoint URL use set_props)
+    set_props("lb-browser-schema-list", {"children": _lb_browser_items([], "schema")})
+    set_props("lb-browser-table-list", {"children": _lb_browser_items([], "table")})
+    set_props("lb-endpoint-url", {"value": ""})
+    set_props("lb-schema-select", {"value": ""})
+    set_props("lb-table-select", {"value": ""})
+    # Re-fetch Lakebase projects if scope is already "lakebase"
+    proj_items = _lb_browser_items([], "project")
+    if scope == "lakebase" and conn_config:
+        host, token = _resolve_conn(conn_config)
+        if host and token:
+            result = make_api_call("GET", "/api/2.0/postgres/projects", token, host, timeout=10)
+            if result.get("success"):
+                items = result["data"].get("projects", []) if isinstance(result["data"], dict) else []
+                names = []
+                for item in items:
+                    name = item.get("name", "")
+                    if "/" in name:
+                        name = name.rsplit("/", 1)[-1]
+                    if name:
+                        names.append(name)
+                if names:
+                    proj_items = _lb_browser_items(sorted(names), "project")
+    return ({}, None, _RESPONSE_EMPTY, None,
+            proj_items, _lb_browser_items([], "branch"),
+            _lb_browser_items([], "endpoint"), None)
 
 
 # 7. Re-auth (profile mode only)
@@ -3780,11 +3818,15 @@ def sync_active_button(endpoint, _scope, btn_ids):
     Input("selected-endpoint", "data"),
     State("conn-config", "data"),
     State("cloud-provider", "data"),
+    State("api-scope", "data"),
     prevent_initial_call=True,
 )
-def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud):
+def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud, scope):
     """Callback 9: Render the endpoint detail card (header, path, params, Execute button)."""
     if not endpoint:
+        # Don't overwrite the SQL/Lakebase panel when those scopes are active
+        if scope in ("sql", "lakebase"):
+            return no_update, no_update
         return WELCOME, "form-panel"
     prefill = dict(endpoint.get("_prefill", {}))
 
@@ -4848,9 +4890,9 @@ def update_curl_display(last_req, conn_config):
         return "", {"display": "none"}
     ws_host, ws_token = _resolve_conn(conn_config)
     if last_req.get("is_account") and ws_host:
-        host, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
+        _, token = resolve_account_connection(conn_config, _accounts_host(ws_host))
     else:
-        host, token = ws_host, ws_token
+        token = ws_token
     method = last_req.get("method", "GET")
     base_url = last_req.get("url", "")
     query_params = last_req.get("query_params") or {}
@@ -4906,10 +4948,10 @@ def update_sql_curl_display(sql_req, conn_config):
     body = sql_req.get("body", {})
     full_url = f"{host}/api/2.0/sql/statements"
     lines = [
-        f"curl -X POST \\",
+        "curl -X POST \\",
         f"  '{full_url}' \\",
         f"  -H 'Authorization: Bearer {token}' \\",
-        f"  -H 'Content-Type: application/json' \\",
+        "  -H 'Content-Type: application/json' \\",
         f"  -d '{json.dumps(body, separators=(',', ':'))}'",
     ]
     return "\n".join(lines), {"display": "block"}
@@ -5144,8 +5186,8 @@ def execute_lakebase_request(trigger, conn_config):
         except ValueError:
             data = {"_raw": response.text[:5000]}
 
-        # Fallback: if REST API returns 403 role error, query via PG wire protocol
-        if response.status_code == 403 and method == "GET" and "permission denied to set role" in str(data):
+        # Fallback: if REST API fails for a GET, retry via PG wire protocol
+        if not (200 <= response.status_code < 300) and method == "GET":
             pg_result = _lb_pg_query(endpoint_url, schema, table, token,
                                      select=select, filter_str=filter_str,
                                      order=order, limit_val=limit_val, offset_val=offset_val)
