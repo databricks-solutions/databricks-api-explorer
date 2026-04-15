@@ -5379,7 +5379,7 @@ def fetch_lb_projects(scope, conn_config):
     """Callback 20e: Populate the project list after Lakebase scope is activated."""
     if scope != "lakebase":
         return no_update
-    host, token = _resolve_conn_obo(conn_config)
+    host, token = _resolve_conn(conn_config)
     if not host or not token:
         return _lb_browser_items([], "project")
     result = make_api_call("GET", "/api/2.0/postgres/projects", token, host, timeout=10)
@@ -5416,7 +5416,7 @@ def lb_browser_project_clicked(n_clicks_list, btn_ids, conn_config):
     names = [b["name"] for b in btn_ids]
     proj_items = _lb_browser_items(names, "project", active=clicked_name)
     # Fetch branches
-    host, token = _resolve_conn_obo(conn_config)
+    host, token = _resolve_conn(conn_config)
     branch_names = []
     if host and token:
         result = make_api_call("GET", f"/api/2.0/postgres/projects/{clicked_name}/branches",
@@ -5452,7 +5452,7 @@ def lb_browser_branch_clicked(n_clicks_list, btn_ids, project, conn_config):
     branch_items = _lb_browser_items(names, "branch", active=clicked_name)
     set_props("lb-browser-branch-list", {"children": branch_items})
     # Fetch endpoints
-    host, token = _resolve_conn_obo(conn_config)
+    host, token = _resolve_conn(conn_config)
     ep_names = []
     if host and token:
         result = make_api_call(
@@ -5490,7 +5490,7 @@ def lb_browser_endpoint_clicked(n_clicks_list, btn_ids, project, branch, conn_co
     ep_items = _lb_browser_items(names, "endpoint", active=clicked_name)
     set_props("lb-browser-endpoint-list", {"children": ep_items})
     # Fetch endpoint details to get the host
-    host, token = _resolve_conn_obo(conn_config)
+    host, token = _resolve_conn(conn_config)
     if not host or not token:
         return no_update
     api_path = f"/api/2.0/postgres/projects/{project}/branches/{branch}/endpoints/{clicked_name}"
