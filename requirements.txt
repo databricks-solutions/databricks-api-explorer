@@ -2,3 +2,4 @@ dash>=4.1.0
 databricks-sdk>=0.20.0
 dash-bootstrap-components>=1.6.0
 requests>=2.31.0
+psycopg2-binary>=2.9.0
