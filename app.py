@@ -62,6 +62,10 @@ from auth import (
 )
 from version import VERSION
 
+# Category name → accordion item-id, used by search to expand matching sections
+_WS_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(API_CATALOG)}
+_ACC_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(ACCOUNT_API_CATALOG)}
+
 # ── Dash init ─────────────────────────────────────────────────────────────────
 app = dash.Dash(
     __name__,
@@ -1138,12 +1142,14 @@ def build_sidebar() -> html.Div:
         dbc.Accordion(
             _build_accordion_items(API_CATALOG),
             start_collapsed=True,
+            always_open=True,
             id="api-accordion",
             className="api-accordion",
         ),
         dbc.Accordion(
             _build_accordion_items(ACCOUNT_API_CATALOG),
             start_collapsed=True,
+            always_open=True,
             id="api-accordion-account",
             className="api-accordion",
             style={"display": "none"},
@@ -3817,9 +3823,9 @@ def sync_active_button(endpoint, _scope, btn_ids):
     if cat_name in cat_keys:
         item = f"item-{cat_keys.index(cat_name)}"
         if scope == "account":
-            acct_item = item
+            acct_item = [item]
         else:
-            ws_item = item
+            ws_item = [item]
     return classes, ws_item, acct_item
 
 
@@ -4554,17 +4560,31 @@ def abort_load_all_on_switch(endpoint):
     State({"type": "endpoint-btn", "id": ALL}, "id"),
 )
 def filter_endpoints(query, btn_ids):
-    """Callback 13: Filter sidebar buttons by name, path, category, or method."""
+    """Callback 13: Filter sidebar buttons by name/path/category/method and expand matching sections."""
     if not query or not query.strip():
         return [{"display": "flex"} for _ in btn_ids]
     q = query.strip().lower()
-    return [
-        {"display": "flex"} if any(
-            q in ENDPOINT_MAP.get(b["id"], {}).get(k, "").lower()
-            for k in ("name", "path", "category", "method")
-        ) else {"display": "none"}
-        for b in btn_ids
-    ]
+    styles = []
+    ws_sections = set()
+    acc_sections = set()
+    for b in btn_ids:
+        ep = ENDPOINT_MAP.get(b["id"], {})
+        match = any(q in ep.get(k, "").lower() for k in ("name", "path", "category", "method"))
+        styles.append({"display": "flex"} if match else {"display": "none"})
+        if match:
+            cat = ep.get("category", "")
+            scope = ep.get("scope", "")
+            if scope == "workspace":
+                item_id = _WS_CAT_INDEX.get(cat)
+                if item_id:
+                    ws_sections.add(item_id)
+            elif scope == "account":
+                item_id = _ACC_CAT_INDEX.get(cat)
+                if item_id:
+                    acc_sections.add(item_id)
+    set_props("api-accordion", {"active_item": sorted(ws_sections)})
+    set_props("api-accordion-account", {"active_item": sorted(acc_sections)})
+    return styles
 
 
 # 14a. Show spinner immediately when Execute is clicked
