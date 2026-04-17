@@ -587,6 +587,60 @@ API_CATALOG: Dict[str, Any] = {
             },
         ],
     },
+    "Git Credentials": {
+        "icon": "bi-key",
+        "color": "#f472b6",
+        "endpoints": [
+            {
+                "id": "git-credentials-list",
+                "name": "List Git Credentials",
+                "method": "GET",
+                "path": "/api/2.0/git-credentials",
+                "description": "Lists the calling user's Git credentials. One credential per remote is supported.",
+                "params": [],
+                "body": None,
+            },
+            {
+                "id": "git-credentials-get",
+                "name": "Get Git Credential",
+                "method": "GET",
+                "path": "/api/2.0/git-credentials/{credential_id}",
+                "description": "Gets the Git credential with the specified credential ID.",
+                "params": [_p("credential_id", "The ID of the Git credential.", required=True, type_=INT)],
+                "path_params": ["credential_id"],
+                "body": None,
+            },
+            {
+                "id": "git-credentials-create",
+                "name": "Create Git Credential",
+                "method": "POST",
+                "path": "/api/2.0/git-credentials",
+                "description": "Creates a Git credential entry for the user. Only one Git credential per remote is supported.",
+                "params": [],
+                "body": '{\n  "git_provider": "gitHub",\n  "git_username": "<username>",\n  "personal_access_token": "<token>"\n}',
+            },
+            {
+                "id": "git-credentials-update",
+                "name": "Update Git Credential",
+                "method": "PATCH",
+                "path": "/api/2.0/git-credentials/{credential_id}",
+                "description": "Updates the specified Git credential.",
+                "params": [_p("credential_id", "The ID of the Git credential.", required=True, type_=INT)],
+                "path_params": ["credential_id"],
+                "body": '{\n  "git_provider": "gitHub",\n  "git_username": "<username>",\n  "personal_access_token": "<new-token>"\n}',
+            },
+            {
+                "id": "git-credentials-delete",
+                "name": "Delete Git Credential",
+                "method": "DELETE",
+                "path": "/api/2.0/git-credentials/{credential_id}",
+                "description": "Deletes the specified Git credential.",
+                "params": [_p("credential_id", "The ID of the Git credential.", required=True, type_=INT)],
+                "path_params": ["credential_id"],
+                "body": None,
+            },
+        ],
+    },
     "Permissions": {
         "icon": "bi-shield-check",
         "color": "#fbbf24",
@@ -1135,6 +1189,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name", None, [
                                       ("pipelines-events", "bi-journal-text", "List Pipeline Events", {"pipeline_id": "pipeline_id"}),
                                   ]),
+    "git-credentials-list":       ("git-credentials-get",    "credentials",    "credential_id", "credential_id", "git_provider"),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
@@ -1895,6 +1950,7 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Instance Pools":      "workspace/instancepools",
     "Cluster Policies":    "workspace/clusterpolicies",
     "Repos":               "workspace/repos",
+    "Git Credentials":     "workspace/gitcredentials",
     "Permissions":         "workspace/permissions",
     "Data Quality Monitoring": "workspace/dataquality",
     # Account
@@ -1973,6 +2029,13 @@ DOCS_URL_MAP: Dict[str, str] = {
     "policies-list":             "workspace/clusterpolicies/list",
     # Workspace — Repos
     "repos-list":                "workspace/repos/list",
+    # Workspace — Permissions
+    # Workspace — Git Credentials
+    "git-credentials-list":        "workspace/gitcredentials/list",
+    "git-credentials-get":         "workspace/gitcredentials/get",
+    "git-credentials-create":      "workspace/gitcredentials/create",
+    "git-credentials-update":      "workspace/gitcredentials/update",
+    "git-credentials-delete":      "workspace/gitcredentials/delete",
     # Workspace — Permissions
     "permissions-clusters-get":    "workspace/permissions/getobjectpermissions",
     "permissions-jobs-get":        "workspace/permissions/getobjectpermissions",
