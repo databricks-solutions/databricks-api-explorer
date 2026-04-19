@@ -1181,6 +1181,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     "name", None, [
                                       ("_sql_select_star", "bi-play-circle", "SELECT * FROM this table", {"full_name": "full_name"}),
                                       ("dqm-monitor-get", "bi-clipboard-check", "Get Data Quality Monitor", {"table_name": "full_name"}),
+                                      ("dqm-refreshes-list", "bi-arrow-repeat", "List Data Quality Monitor Refreshes", {"table_name": "full_name"}),
                                   ]),
     "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name", None, [
                                       ("mlflow-runs-search", "bi-list-ul", "Search Runs", {"experiment_id": "experiment_id"}),
