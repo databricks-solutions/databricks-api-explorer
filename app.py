@@ -34,10 +34,13 @@ from flask import request as flask_request
 from api_catalog import (
     ACCOUNT_API_CATALOG,
     API_CATALOG,
+    COMMAND_API_CATALOG,
     ENDPOINT_MAP,
     TOTAL_ACCOUNT_CATEGORIES,
     TOTAL_ACCOUNT_ENDPOINTS,
     TOTAL_CATEGORIES,
+    TOTAL_COMMAND_CATEGORIES,
+    TOTAL_COMMAND_ENDPOINTS,
     TOTAL_ENDPOINTS,
     detect_cloud,
     extract_chips,
@@ -65,6 +68,7 @@ from version import VERSION
 # Category name → accordion item-id, used by search to expand matching sections
 _WS_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(API_CATALOG)}
 _ACC_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(ACCOUNT_API_CATALOG)}
+_CMD_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(COMMAND_API_CATALOG)}
 
 # ── Dash init ─────────────────────────────────────────────────────────────────
 app = dash.Dash(
@@ -1119,6 +1123,7 @@ def build_sidebar() -> html.Div:
                 {"label": html.Span([html.I(className="bi bi-pc-display me-2"), "Workspace APIs"]), "value": "workspace"},
                 {"label": html.Span([html.I(className="bi bi-globe me-2"), "Account APIs"]), "value": "account"},
                 {"label": html.Span([html.I(className="bi bi-database me-2"), "SQL Execution"]), "value": "sql"},
+                {"label": html.Span([html.I(className="bi bi-terminal me-2"), "Command Execution"]), "value": "commands"},
                 {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
             ],
             value="workspace",
@@ -1151,6 +1156,14 @@ def build_sidebar() -> html.Div:
             start_collapsed=True,
             always_open=True,
             id="api-accordion-account",
+            className="api-accordion",
+            style={"display": "none"},
+        ),
+        dbc.Accordion(
+            _build_accordion_items(COMMAND_API_CATALOG),
+            start_collapsed=True,
+            always_open=True,
+            id="api-accordion-commands",
             className="api-accordion",
             style={"display": "none"},
         ),
@@ -2462,6 +2475,8 @@ app.layout = html.Div([
     dcc.Store(id="sql-schema-selected", data=None),   # selected schema name for SQL browser
     dcc.Store(id="sql-table-selected", data=None),    # selected table for SQL browser → populates form
     dcc.Store(id="sql-navigate", data=None),           # {full_name: "cat.sch.tbl"} → switch to SQL & run SELECT *
+    dcc.Store(id="cmd-navigate", data=None),           # {clusterId: "..."} → switch to Command Execution & prefill Run Command
+    dcc.Store(id="cmd-navigate-dummy", data=None),     # dummy output for cmd-navigate scope switch clientside CB
     dcc.Store(id="lb-trigger", data=None, storage_type="memory"),   # fires server-side Lakebase execute
     dcc.Store(id="lb-last-request", data=None),         # last Lakebase request for curl display
     dcc.Store(id="lb-curl-dummy", data=None),           # dummy output for Lakebase curl copy CB
@@ -2537,11 +2552,13 @@ app.clientside_callback(
     function(scope, cloud) {
         var ws  = document.getElementById('api-accordion');
         var acc = document.getElementById('api-accordion-account');
+        var cmd = document.getElementById('api-accordion-commands');
         var sql = document.getElementById('sql-browser-container');
         var lb  = document.getElementById('lakebase-browser-container');
         var sidebar = document.getElementById('sidebar');
         if (ws)  ws.style.display  = scope === 'workspace' ? '' : 'none';
         if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
+        if (cmd) cmd.style.display = scope === 'commands'  ? '' : 'none';
         if (sql) sql.style.display = scope === 'sql'       ? '' : 'none';
         if (lb)  lb.style.display  = scope === 'lakebase'  ? '' : 'none';
         if (sidebar) {
@@ -2601,7 +2618,7 @@ def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
         return WELCOME, "form-panel", _RESPONSE_EMPTY
 
     # Re-render the endpoint detail form (reuses callback 9 logic)
-    detail = render_endpoint_detail(current_endpoint, conn_config, cloud)
+    detail = render_endpoint_detail(current_endpoint, conn_config, cloud, scope)
 
     # Restore cached response if available
     ep_id = current_endpoint.get("id", "")
@@ -3741,7 +3758,7 @@ app.clientside_callback(
             var btn = e.target.closest('.accordion-button');
             if (!btn) return;
             /* Check both workspace and account accordions */
-            var accIds = ['api-accordion', 'api-accordion-account'];
+            var accIds = ['api-accordion', 'api-accordion-account', 'api-accordion-commands'];
             for (var a = 0; a < accIds.length; a++) {
                 var acc = document.getElementById(accIds[a]);
                 if (!acc || !acc.contains(btn)) continue;
@@ -3785,7 +3802,12 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
         cat_idx = int(active_item.split("-")[1])
     except (IndexError, ValueError):
         return no_update
-    catalog = ACCOUNT_API_CATALOG if scope == "account" else API_CATALOG
+    if scope == "account":
+        catalog = ACCOUNT_API_CATALOG
+    elif scope == "commands":
+        catalog = COMMAND_API_CATALOG
+    else:
+        catalog = API_CATALOG
     cat_keys = list(catalog.keys())
     if cat_idx >= len(cat_keys):
         return no_update
@@ -3805,6 +3827,7 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
     Output({"type": "endpoint-btn", "id": ALL}, "className"),
     Output("api-accordion", "active_item"),
     Output("api-accordion-account", "active_item"),
+    Output("api-accordion-commands", "active_item"),
     Input("selected-endpoint", "data"),
     Input("api-scope", "data"),
     State({"type": "endpoint-btn", "id": ALL}, "id"),
@@ -3817,16 +3840,23 @@ def sync_active_button(endpoint, _scope, btn_ids):
     # Open the accordion section for the endpoint's category
     cat_name = (endpoint or {}).get("category", "")
     scope = (endpoint or {}).get("scope", "workspace")
-    catalog = ACCOUNT_API_CATALOG if scope == "account" else API_CATALOG
+    if scope == "account":
+        catalog = ACCOUNT_API_CATALOG
+    elif scope == "commands":
+        catalog = COMMAND_API_CATALOG
+    else:
+        catalog = API_CATALOG
     cat_keys = list(catalog.keys())
-    ws_item, acct_item = no_update, no_update
+    ws_item, acct_item, cmd_item = no_update, no_update, no_update
     if cat_name in cat_keys:
         item = f"item-{cat_keys.index(cat_name)}"
         if scope == "account":
             acct_item = [item]
+        elif scope == "commands":
+            cmd_item = [item]
         else:
             ws_item = [item]
-    return classes, ws_item, acct_item
+    return classes, ws_item, acct_item, cmd_item
 
 
 # 9. Render endpoint detail
@@ -4567,6 +4597,7 @@ def filter_endpoints(query, btn_ids):
     styles = []
     ws_sections = set()
     acc_sections = set()
+    cmd_sections = set()
     for b in btn_ids:
         ep = ENDPOINT_MAP.get(b["id"], {})
         match = any(q in ep.get(k, "").lower() for k in ("name", "path", "category", "method"))
@@ -4582,8 +4613,13 @@ def filter_endpoints(query, btn_ids):
                 item_id = _ACC_CAT_INDEX.get(cat)
                 if item_id:
                     acc_sections.add(item_id)
+            elif scope == "commands":
+                item_id = _CMD_CAT_INDEX.get(cat)
+                if item_id:
+                    cmd_sections.add(item_id)
     set_props("api-accordion", {"active_item": sorted(ws_sections)})
     set_props("api-accordion-account", {"active_item": sorted(acc_sections)})
+    set_props("api-accordion-commands", {"active_item": sorted(cmd_sections)})
     return styles
 
 
@@ -4806,34 +4842,42 @@ def handle_sp_item_click(n_clicks_list, chips_data):
 @app.callback(
     Output("iframe-link-click", "data", allow_duplicate=True),
     Output("sql-navigate", "data", allow_duplicate=True),
+    Output("cmd-navigate", "data", allow_duplicate=True),
     Input({"type": "sp-action", "index": ALL, "action": ALL}, "n_clicks"),
     State("chips-store", "data"),
     prevent_initial_call=True,
 )
 def handle_sp_action_click(n_clicks_list, chips_data):
-    """Callback 18b: Translate a side-panel action button click into an iframe-link-click or SQL navigation."""
+    """Callback 18b: Translate a side-panel action button click into an iframe-link-click or SQL/Command navigation."""
     from dash import callback_context
     if not callback_context.triggered or not chips_data:
-        return no_update, no_update
+        return no_update, no_update, no_update
     triggered = callback_context.triggered[0]
     if not triggered["value"]:
-        return no_update, no_update
+        return no_update, no_update, no_update
     tid = json.loads(triggered["prop_id"].split(".")[0])
     idx, action_idx = tid["index"], tid["action"]
     if idx >= len(chips_data):
-        return no_update, no_update
+        return no_update, no_update, no_update
     chip = chips_data[idx]
     actions = chip.get("actions") or []
     if action_idx >= len(actions):
-        return no_update, no_update
+        return no_update, no_update, no_update
     action = actions[action_idx]
 
     # Special SQL action: navigate to SQL mode with SELECT *
     if action["gid"] == "_sql_select_star":
         full_name = action["params"].get("full_name", "")
         if full_name:
-            return no_update, {"full_name": full_name, "_ts": time.time()}
-        return no_update, no_update
+            return no_update, {"full_name": full_name, "_ts": time.time()}, no_update
+        return no_update, no_update, no_update
+
+    # Special Command Execution nav: switch scope + prefill Run Command, don't execute
+    if action["gid"] == "_cmd_execute_nav":
+        cluster_id = action["params"].get("clusterId", "")
+        if cluster_id:
+            return no_update, no_update, {"clusterId": cluster_id, "_ts": time.time()}
+        return no_update, no_update, no_update
 
     # Normal action: navigate to the target endpoint
     params = action["params"]
@@ -4843,7 +4887,7 @@ def handle_sp_action_click(n_clicks_list, chips_data):
     msg = {"type": "id-link", "gid": action["gid"], "par": first_key, "val": first_val}
     if ext:
         msg["ext"] = ext
-    return msg, no_update
+    return msg, no_update, no_update
 
 
 # 18c. "SELECT *" button in Get Table response → write sql-navigate
@@ -4903,6 +4947,37 @@ app.clientside_callback(
     """,
     Output("sql-cleanup-dummy", "data", allow_duplicate=True),
     Input("sql-navigate", "data"),
+    prevent_initial_call=True,
+)
+
+
+# 18e. cmd-navigate store → switch to Command Execution scope and pre-fill Run Command with clusterId
+@app.callback(
+    Output("selected-endpoint", "data", allow_duplicate=True),
+    Input("cmd-navigate", "data"),
+    prevent_initial_call=True,
+)
+def handle_cmd_navigate(nav_data):
+    """Callback 18e: Select cmd-execute with clusterId prefilled (no auto-execution)."""
+    if not nav_data or not nav_data.get("clusterId"):
+        return no_update
+    endpoint = get_endpoint_by_id("cmd-execute")
+    if not endpoint:
+        return no_update
+    return {**endpoint, "_prefill": {"clusterId": nav_data["clusterId"]}}
+
+
+# 18f. cmd-navigate → switch scope dropdown to 'commands' (clientside)
+app.clientside_callback(
+    """
+    function(navData) {
+        if (!navData || !navData.clusterId) return window.dash_clientside.no_update;
+        window.dash_clientside.set_props('scope-dropdown', {value: 'commands'});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("cmd-navigate-dummy", "data"),
+    Input("cmd-navigate", "data"),
     prevent_initial_call=True,
 )
 
