@@ -1939,7 +1939,7 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
                             v = v.rsplit("/", 1)[-1]
                         act_p[tp] = v
                 actions.append({"gid": act_id, "icon": act_icon, "title": act_title, "params": act_p})
-        chips.append({
+        chip = {
             "get_id":   get_id,
             "param":    param_name,
             "id_field": id_field.rsplit(".", 1)[-1] if "." in id_field else id_field,
@@ -1948,7 +1948,10 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
             "title":    str(value),
             "extras":   extras,
             "actions":  actions,
-        })
+        }
+        if endpoint_id == "clusters-list":
+            chip["state"] = item.get("state")
+        chips.append(chip)
     return chips
 
 

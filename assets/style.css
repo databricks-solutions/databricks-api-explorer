@@ -926,6 +926,28 @@ body {
   border-color: rgba(0,212,255,0.3);
   color: #00d4ff;
 }
+.sp-name-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sp-state-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.sp-state-running {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34,197,94,0.6);
+}
+.sp-state-other {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239,68,68,0.5);
+}
 .sp-name {
   font-size: 11px;
   color: var(--text-1);
@@ -1267,8 +1289,16 @@ body {
 
 /* Connection mode radio */
 .conn-mode-radio .form-check { margin-right: 16px; }
-.conn-radio-input { border-color: var(--border) !important; accent-color: var(--cyan); }
-.conn-radio-label { font-size: 12px; color: var(--text-2); cursor: pointer; }
+.conn-radio-input {
+  background-color: transparent !important;
+  border: 1.5px solid var(--text-3) !important;
+  accent-color: var(--cyan);
+}
+.conn-radio-input:checked {
+  background-color: var(--cyan) !important;
+  border-color: var(--cyan) !important;
+}
+.conn-radio-label { font-size: 12px; color: var(--text-1); cursor: pointer; }
 
 /* Connection form elements */
 .profile-select-row {
