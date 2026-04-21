@@ -433,9 +433,11 @@ def make_api_call(
         * ``url`` (str) -- The fully-qualified URL that was called.
     """
     url = f"{host}{path}"
+    # Legacy 1.2 Command Execution API uses form-encoded bodies, not JSON.
+    is_legacy_form = path.startswith("/api/1.2/")
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded" if is_legacy_form else "application/json",
         "User-Agent": "DatabricksAPIExplorer/1.0",
     }
 
@@ -445,13 +447,21 @@ def make_api_call(
     t0 = time.perf_counter()
     try:
         is_read = method.upper() in ("GET", "DELETE")
+        if is_read:
+            post_kwargs = {}
+        elif is_legacy_form:
+            form_body = body if isinstance(body, dict) else {}
+            form_body = {k: v for k, v in form_body.items() if v not in (None, "")}
+            post_kwargs = {"data": form_body}
+        else:
+            post_kwargs = {"json": body}
         response = requests.request(
             method=method.upper(),
             url=url,
             headers=headers,
             params=query_params if is_read else None,
-            json=body if not is_read else None,
             timeout=timeout,
+            **post_kwargs,
         )
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
 

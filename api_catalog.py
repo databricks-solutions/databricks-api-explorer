@@ -641,6 +641,60 @@ API_CATALOG: Dict[str, Any] = {
             },
         ],
     },
+    "Global Init Scripts": {
+        "icon": "bi-file-earmark-code",
+        "color": "#f59e0b",
+        "endpoints": [
+            {
+                "id": "global-init-scripts-list",
+                "name": "List Global Init Scripts",
+                "method": "GET",
+                "path": "/api/2.0/global-init-scripts",
+                "description": "Lists all global init scripts for this workspace (metadata only — use Get to retrieve script content).",
+                "params": [],
+                "body": None,
+            },
+            {
+                "id": "global-init-scripts-get",
+                "name": "Get Global Init Script",
+                "method": "GET",
+                "path": "/api/2.0/global-init-scripts/{script_id}",
+                "description": "Gets a single global init script, including the base64-encoded script content.",
+                "params": [_p("script_id", "The ID of the global init script.", required=True)],
+                "path_params": ["script_id"],
+                "body": None,
+            },
+            {
+                "id": "global-init-scripts-create",
+                "name": "Create Global Init Script",
+                "method": "POST",
+                "path": "/api/2.0/global-init-scripts",
+                "description": "Creates a new global init script. Script content must be base64-encoded.",
+                "params": [],
+                "body": '{\n  "name": "my-init-script",\n  "script": "<base64-encoded-bash>",\n  "enabled": true,\n  "position": 0\n}',
+            },
+            {
+                "id": "global-init-scripts-update",
+                "name": "Update Global Init Script",
+                "method": "PATCH",
+                "path": "/api/2.0/global-init-scripts/{script_id}",
+                "description": "Updates a global init script. Script content must be base64-encoded when provided.",
+                "params": [_p("script_id", "The ID of the global init script.", required=True)],
+                "path_params": ["script_id"],
+                "body": '{\n  "name": "my-init-script",\n  "script": "<base64-encoded-bash>",\n  "enabled": true,\n  "position": 0\n}',
+            },
+            {
+                "id": "global-init-scripts-delete",
+                "name": "Delete Global Init Script",
+                "method": "DELETE",
+                "path": "/api/2.0/global-init-scripts/{script_id}",
+                "description": "Deletes a global init script.",
+                "params": [_p("script_id", "The ID of the global init script.", required=True)],
+                "path_params": ["script_id"],
+                "body": None,
+            },
+        ],
+    },
     "Permissions": {
         "icon": "bi-shield-check",
         "color": "#fbbf24",
@@ -1192,6 +1246,7 @@ LIST_TO_GET: Dict[str, Any] = {
                                       ("pipelines-events", "bi-journal-text", "List Pipeline Events", {"pipeline_id": "pipeline_id"}),
                                   ]),
     "git-credentials-list":       ("git-credentials-get",    "credentials",    "credential_id", "credential_id", "git_provider"),
+    "global-init-scripts-list":   ("global-init-scripts-get", "scripts",       "script_id",     "script_id",     "name"),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
@@ -1939,7 +1994,7 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
                             v = v.rsplit("/", 1)[-1]
                         act_p[tp] = v
                 actions.append({"gid": act_id, "icon": act_icon, "title": act_title, "params": act_p})
-        chips.append({
+        chip = {
             "get_id":   get_id,
             "param":    param_name,
             "id_field": id_field.rsplit(".", 1)[-1] if "." in id_field else id_field,
@@ -1948,7 +2003,10 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
             "title":    str(value),
             "extras":   extras,
             "actions":  actions,
-        })
+        }
+        if endpoint_id == "clusters-list":
+            chip["state"] = item.get("state")
+        chips.append(chip)
     return chips
 
 
@@ -2039,6 +2097,7 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Cluster Policies":    "workspace/clusterpolicies",
     "Repos":               "workspace/repos",
     "Git Credentials":     "workspace/gitcredentials",
+    "Global Init Scripts": "workspace/globalinitscripts",
     "Permissions":         "workspace/permissions",
     "Data Quality Monitoring": "workspace/dataquality",
     "Execution Contexts":  "workspace/commandexecution",
@@ -2126,6 +2185,12 @@ DOCS_URL_MAP: Dict[str, str] = {
     "git-credentials-create":      "workspace/gitcredentials/create",
     "git-credentials-update":      "workspace/gitcredentials/update",
     "git-credentials-delete":      "workspace/gitcredentials/delete",
+    # Workspace — Global Init Scripts
+    "global-init-scripts-list":    "workspace/globalinitscripts/list",
+    "global-init-scripts-get":     "workspace/globalinitscripts/get",
+    "global-init-scripts-create":  "workspace/globalinitscripts/create",
+    "global-init-scripts-update":  "workspace/globalinitscripts/update",
+    "global-init-scripts-delete":  "workspace/globalinitscripts/delete",
     # Workspace — Permissions
     "permissions-clusters-get":    "workspace/permissions/getobjectpermissions",
     "permissions-jobs-get":        "workspace/permissions/getobjectpermissions",

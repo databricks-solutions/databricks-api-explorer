@@ -895,16 +895,24 @@ def build_response_panel(
             has_label = chip["label"] != chip["title"]
             name_text = chip["label"]
             id_text = chip["title"] if has_label else ""
-            text_children = [html.Span(name_text, className="sp-name")]
+            name_row = [html.Span(name_text, className="sp-name")]
+            if "state" in chip:
+                state = chip.get("state") or ""
+                dot_cls = "sp-state-dot sp-state-running" if state == "RUNNING" else "sp-state-dot sp-state-other"
+                name_row.insert(0, html.Span(className=dot_cls, title=f"State: {state or 'unknown'}"))
+            text_children = [html.Span(name_row, className="sp-name-row")]
             if id_text:
                 text_children.append(html.Span(id_text, className="sp-id"))
+            tooltip = f"{chip['label']} · {chip['title']}"
+            if "state" in chip:
+                tooltip = f"{tooltip} · {chip.get('state') or 'unknown'}"
             item_children = [
                 html.Button(
                     text_children,
                     id={"type": "sp-item", "index": i},
                     n_clicks=0,
                     className="sp-item-main",
-                    title=f"{chip['label']} · {chip['title']}",
+                    title=tooltip,
                 ),
             ]
             for j, action in enumerate(chip.get("actions") or []):
@@ -4954,17 +4962,18 @@ app.clientside_callback(
 # 18e. cmd-navigate store → switch to Command Execution scope and pre-fill Run Command with clusterId
 @app.callback(
     Output("selected-endpoint", "data", allow_duplicate=True),
+    Output("response-container", "children", allow_duplicate=True),
     Input("cmd-navigate", "data"),
     prevent_initial_call=True,
 )
 def handle_cmd_navigate(nav_data):
-    """Callback 18e: Select cmd-execute with clusterId prefilled (no auto-execution)."""
+    """Callback 18e: Select cmd-execute with clusterId prefilled, clear stale list response."""
     if not nav_data or not nav_data.get("clusterId"):
-        return no_update
+        return no_update, no_update
     endpoint = get_endpoint_by_id("cmd-execute")
     if not endpoint:
-        return no_update
-    return {**endpoint, "_prefill": {"clusterId": nav_data["clusterId"]}}
+        return no_update, no_update
+    return {**endpoint, "_prefill": {"clusterId": nav_data["clusterId"]}}, _RESPONSE_EMPTY
 
 
 # 18f. cmd-navigate → switch scope dropdown to 'commands' (clientside)
