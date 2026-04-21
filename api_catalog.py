@@ -1166,6 +1166,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name", None, [
                                       ("permissions-clusters-get", "bi-shield-check", "Get Cluster Permissions", {"cluster_id": "cluster_id"}),
                                       ("clusters-events", "bi-journal-text", "Get Cluster Events", {"cluster_id": "cluster_id"}),
+                                      ("_cmd_execute_nav", "bi-terminal", "Run Command on this cluster", {"clusterId": "cluster_id"}),
                                   ]),
     "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name", None, [
                                       ("permissions-jobs-get", "bi-shield-check", "Get Job Permissions", {"job_id": "job_id"}),
@@ -1181,6 +1182,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "uc-tables-list":             ("uc-tables-get",          "tables",         "full_name",     "full_name",     "name", None, [
                                       ("_sql_select_star", "bi-play-circle", "SELECT * FROM this table", {"full_name": "full_name"}),
                                       ("dqm-monitor-get", "bi-clipboard-check", "Get Data Quality Monitor", {"table_name": "full_name"}),
+                                      ("dqm-refreshes-list", "bi-arrow-repeat", "List Data Quality Monitor Refreshes", {"table_name": "full_name"}),
                                   ]),
     "mlflow-experiments-search":  ("mlflow-experiments-get", "experiments",    "experiment_id", "experiment_id", "name", None, [
                                       ("mlflow-runs-search", "bi-list-ul", "Search Runs", {"experiment_id": "experiment_id"}),
@@ -1202,6 +1204,90 @@ LIST_TO_GET: Dict[str, Any] = {
                                       ("pg-branches-list", "bi-diagram-2", "List Branches", {"project_id": "@name"}),
                                   ]),
     "dqm-refreshes-list":         ("dqm-refresh-get",        "refreshes",      "refresh_id",    "refresh_id",    None),
+}
+
+
+# ── Command Execution API Catalog ─────────────────────────────────────────────
+# Legacy 1.2 API for running commands on a cluster. Two entities:
+#   - Execution Contexts (attached to a cluster, scoped to a language)
+#   - Commands (run within a context)
+# Docs: https://docs.databricks.com/api/workspace/commandexecution
+
+
+COMMAND_API_CATALOG: Dict[str, Any] = {
+    "Execution Contexts": {
+        "icon": "bi-terminal",
+        "color": "#f59e0b",
+        "endpoints": [
+            {
+                "id": "cmd-context-create",
+                "name": "Create Context",
+                "method": "POST",
+                "path": "/api/1.2/contexts/create",
+                "description": "Creates an execution context on a cluster for a specific language.",
+                "params": [],
+                "body": '{\n  "clusterId": "",\n  "language": "python"\n}',
+            },
+            {
+                "id": "cmd-context-status",
+                "name": "Get Context Status",
+                "method": "GET",
+                "path": "/api/1.2/contexts/status",
+                "description": "Gets the status of an execution context.",
+                "params": [
+                    _p("clusterId", "The cluster the context is attached to.", required=True),
+                    _p("contextId", "The execution context ID.", required=True),
+                ],
+                "body": None,
+            },
+            {
+                "id": "cmd-context-destroy",
+                "name": "Destroy Context",
+                "method": "POST",
+                "path": "/api/1.2/contexts/destroy",
+                "description": "Destroys an execution context on a cluster.",
+                "params": [],
+                "body": '{\n  "clusterId": "",\n  "contextId": ""\n}',
+            },
+        ],
+    },
+    "Commands": {
+        "icon": "bi-play-btn",
+        "color": "#f59e0b",
+        "endpoints": [
+            {
+                "id": "cmd-execute",
+                "name": "Run Command",
+                "method": "POST",
+                "path": "/api/1.2/commands/execute",
+                "description": "Runs a command (or file) in an execution context. Use multipart/form-data when uploading a file.",
+                "params": [],
+                "body": '{\n  "clusterId": "",\n  "contextId": "",\n  "language": "python",\n  "command": "print(\\"hello\\")"\n}',
+            },
+            {
+                "id": "cmd-status",
+                "name": "Get Command Status",
+                "method": "GET",
+                "path": "/api/1.2/commands/status",
+                "description": "Gets the status of a command, including any results once it completes.",
+                "params": [
+                    _p("clusterId", "The cluster the command is running on.", required=True),
+                    _p("contextId", "The execution context ID.", required=True),
+                    _p("commandId", "The command ID.", required=True),
+                ],
+                "body": None,
+            },
+            {
+                "id": "cmd-cancel",
+                "name": "Cancel Command",
+                "method": "POST",
+                "path": "/api/1.2/commands/cancel",
+                "description": "Cancels a running command.",
+                "params": [],
+                "body": '{\n  "clusterId": "",\n  "contextId": "",\n  "commandId": ""\n}',
+            },
+        ],
+    },
 }
 
 
@@ -1881,7 +1967,7 @@ def get_endpoint_by_id(endpoint_id: str) -> Optional[Dict[str, Any]]:
         ``category_color``, and ``scope`` (``"workspace"`` or
         ``"account"``) keys, or ``None`` if not found.
     """
-    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account")):
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands")):
         for category_name, category in catalog.items():
             for endpoint in category["endpoints"]:
                 if endpoint["id"] == endpoint_id:
@@ -1905,7 +1991,7 @@ def build_endpoint_map() -> Dict[str, Dict[str, Any]]:
         A ``{endpoint_id: endpoint_dict}`` mapping.
     """
     result: Dict[str, Dict[str, Any]] = {}
-    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account")):
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands")):
         for cat_name, cat in catalog.items():
             for endpoint in cat["endpoints"]:
                 result[endpoint["id"]] = {
@@ -1923,6 +2009,8 @@ TOTAL_ENDPOINTS: int = sum(len(c["endpoints"]) for c in API_CATALOG.values())
 TOTAL_CATEGORIES: int = len(API_CATALOG)
 TOTAL_ACCOUNT_ENDPOINTS: int = sum(len(c["endpoints"]) for c in ACCOUNT_API_CATALOG.values())
 TOTAL_ACCOUNT_CATEGORIES: int = len(ACCOUNT_API_CATALOG)
+TOTAL_COMMAND_ENDPOINTS: int = sum(len(c["endpoints"]) for c in COMMAND_API_CATALOG.values())
+TOTAL_COMMAND_CATEGORIES: int = len(COMMAND_API_CATALOG)
 
 
 # ── API Documentation URL map ────────────────────────────────────────────────
@@ -1953,6 +2041,8 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Git Credentials":     "workspace/gitcredentials",
     "Permissions":         "workspace/permissions",
     "Data Quality Monitoring": "workspace/dataquality",
+    "Execution Contexts":  "workspace/commandexecution",
+    "Commands":            "workspace/commandexecution",
     # Account
     "Account Users":       "account/accountusers",
     "Account Groups":      "account/accountgroups",
@@ -2097,6 +2187,13 @@ DOCS_URL_MAP: Dict[str, str] = {
     # Account — Settings
     "acct-settings-personal-compute": "account/cspenablement/get",
     "acct-settings-ip-access-list":   "account/accountipaccesslists/list",
+    # Command Execution
+    "cmd-context-create":        "workspace/commandexecution/create",
+    "cmd-context-status":        "workspace/commandexecution/contextstatus",
+    "cmd-context-destroy":       "workspace/commandexecution/destroy",
+    "cmd-execute":               "workspace/commandexecution/execute",
+    "cmd-status":                "workspace/commandexecution/commandstatus",
+    "cmd-cancel":                "workspace/commandexecution/cancel",
 }
 
 
