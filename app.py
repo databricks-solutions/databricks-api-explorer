@@ -1673,6 +1673,12 @@ def _custom_section() -> html.Div:
 
 
 USER_DROPDOWN = html.Div([
+    # ── Loading overlay (shown while popup-name is empty) ─────
+    html.Div([
+        html.Div(className="user-dropdown-spinner-ring"),
+        html.Div("Loading identity…", className="user-dropdown-spinner-text"),
+    ], className="user-dropdown-spinner"),
+
     # ── Identity section ──────────────────────────────────────
     html.Div([
         html.Div(id="popup-avatar", className="auth-avatar"),
