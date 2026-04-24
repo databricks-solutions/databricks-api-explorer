@@ -958,6 +958,33 @@ def build_response_panel(
             title=f"SELECT * FROM {full_name}",
         )
 
+    # "Decode script" button + overlay for Get Global Init Script responses
+    decode_btn = None
+    if endpoint_id == "global-init-scripts-get" and isinstance(data, dict) and data.get("script"):
+        import base64 as _b64
+        try:
+            decoded_text = _b64.b64decode(data["script"]).decode("utf-8", errors="replace")
+        except Exception as e:
+            decoded_text = f"[decode error: {e}]"
+        decode_btn = html.Button(
+            [html.I(className="bi bi-file-earmark-code me-1"), "Decode script"],
+            id="decode-script-btn",
+            n_clicks=0,
+            className="sql-query-link-btn ms-2",
+            title="Toggle decoded BASE64 script",
+        )
+        body_children.append(html.Div(
+            [
+                html.Div([
+                    html.Span("Decoded script", className="decoded-script-title"),
+                    html.Span("Click \"Decode script\" again to close", className="decoded-script-hint"),
+                ], className="decoded-script-header"),
+                html.Pre(decoded_text, className="decoded-script-pre"),
+            ],
+            id="decoded-script-panel",
+            className="decoded-script-panel hidden",
+        ))
+
     return html.Div([
         html.Div([
             dbc.Badge([html.I(className=f"bi {icon} me-1"), str(code) if code else "Error"],
@@ -965,6 +992,7 @@ def build_response_panel(
             html.Span(f"{ms:,}ms", className="timing-label font-mono ms-2"),
             html.Span(item_count, className="timing-label") if item_count else None,
             query_btn,
+            decode_btn,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(body_children, className="response-body"),
