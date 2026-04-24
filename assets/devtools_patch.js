@@ -205,3 +205,13 @@
     }
   }).observe(document.body, { childList: true, subtree: true });
 })();
+
+/* ── Decoded-script overlay toggle (Get Global Init Script) ─────────────── */
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest && e.target.closest('#decode-script-btn');
+    if (!btn) return;
+    var panel = document.getElementById('decoded-script-panel');
+    if (panel) panel.classList.toggle('hidden');
+  });
+})();
