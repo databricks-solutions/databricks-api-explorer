@@ -627,6 +627,48 @@ API_CATALOG: Dict[str, Any] = {
             },
         ],
     },
+    "Instance Profiles": {
+        "icon": "bi-person-badge",
+        "color": "#fb923c",
+        "endpoints": [
+            {
+                "id": "instance-profiles-list",
+                "name": "List Instance Profiles",
+                "method": "GET",
+                "path": "/api/2.0/instance-profiles/list",
+                "description": "Lists the instance profiles that the calling user can use to launch a cluster (AWS only).",
+                "params": [],
+                "body": None,
+            },
+            {
+                "id": "instance-profiles-add",
+                "name": "Add Instance Profile",
+                "method": "POST",
+                "path": "/api/2.0/instance-profiles/add",
+                "description": "Registers an instance profile in Databricks. In the UI, admin users can then give users the permission to use this instance profile when launching clusters (AWS only).",
+                "params": [],
+                "body": '{\n  "instance_profile_arn": "arn:aws:iam::<account-id>:instance-profile/<profile-name>",\n  "iam_role_arn": "arn:aws:iam::<account-id>:role/<role-name>",\n  "is_meta_instance_profile": false,\n  "skip_validation": false\n}',
+            },
+            {
+                "id": "instance-profiles-edit",
+                "name": "Edit Instance Profile",
+                "method": "POST",
+                "path": "/api/2.0/instance-profiles/edit",
+                "description": "Changes the optional IAM role ARN and/or meta-instance-profile flag associated with a registered instance profile (AWS only).",
+                "params": [],
+                "body": '{\n  "instance_profile_arn": "arn:aws:iam::<account-id>:instance-profile/<profile-name>",\n  "iam_role_arn": "arn:aws:iam::<account-id>:role/<role-name>",\n  "is_meta_instance_profile": false\n}',
+            },
+            {
+                "id": "instance-profiles-remove",
+                "name": "Remove Instance Profile",
+                "method": "POST",
+                "path": "/api/2.0/instance-profiles/remove",
+                "description": "Removes the instance profile with the provided ARN. Existing clusters with this instance profile continue to work (AWS only).",
+                "params": [],
+                "body": '{\n  "instance_profile_arn": "arn:aws:iam::<account-id>:instance-profile/<profile-name>"\n}',
+            },
+        ],
+    },
     "Cluster Policies": {
         "icon": "bi-file-ruled",
         "color": "#94a3b8",
@@ -2171,6 +2213,7 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Identity (SCIM)":     "workspace/users",
     "Tokens":              "workspace/tokenmanagement",
     "Instance Pools":      "workspace/instancepools",
+    "Instance Profiles":   "workspace/instanceprofiles",
     "Cluster Policies":    "workspace/clusterpolicies",
     "Repos":               "workspace/repos",
     "Git Credentials":     "workspace/gitcredentials",
@@ -2259,6 +2302,11 @@ DOCS_URL_MAP: Dict[str, str] = {
     "instance-pools-permissions-get":     "workspace/instancepools/getinstancepoolpermissions",
     "instance-pools-permissions-set":     "workspace/instancepools/setinstancepoolpermissions",
     "instance-pools-permissions-update":  "workspace/instancepools/updateinstancepoolpermissions",
+    # Workspace — Instance Profiles
+    "instance-profiles-list":             "workspace/instanceprofiles/list",
+    "instance-profiles-add":              "workspace/instanceprofiles/add",
+    "instance-profiles-edit":             "workspace/instanceprofiles/edit",
+    "instance-profiles-remove":           "workspace/instanceprofiles/remove",
     # Workspace — Cluster Policies
     "policies-list":             "workspace/clusterpolicies/list",
     # Workspace — Repos
