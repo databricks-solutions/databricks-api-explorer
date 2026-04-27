@@ -685,6 +685,37 @@ API_CATALOG: Dict[str, Any] = {
                 ],
                 "body": None,
             },
+            {
+                "id": "policies-list-compliance",
+                "name": "List Compliance for Clusters",
+                "method": "GET",
+                "path": "/api/2.0/policies/clusters/list-compliance",
+                "description": "Returns the policy compliance status of all clusters that use a given policy. Clusters can be out of compliance if their policy was updated after the cluster was last edited.",
+                "params": [
+                    _p("policy_id", "Canonical unique identifier for the cluster policy.", required=True),
+                    _p("page_size", "Maximum number of results returned per page.", type_=INT),
+                    _p("page_token", "Page token for pagination."),
+                ],
+                "body": None,
+            },
+            {
+                "id": "policies-get-compliance",
+                "name": "Get Cluster Compliance",
+                "method": "GET",
+                "path": "/api/2.0/policies/clusters/get-compliance",
+                "description": "Returns the policy compliance status of a single cluster. A cluster can be out of compliance if its policy was updated after the cluster was last edited.",
+                "params": [_p("cluster_id", "The ID of the cluster to get the compliance status of.", required=True)],
+                "body": None,
+            },
+            {
+                "id": "policies-enforce-compliance",
+                "name": "Enforce Cluster Compliance",
+                "method": "POST",
+                "path": "/api/2.0/policies/clusters/enforce-compliance",
+                "description": "Updates a cluster to be compliant with the current version of its policy. A RUNNING cluster will be restarted; a TERMINATED cluster picks up the new attributes on next start. Use validate_only=true to preview changes without applying them.",
+                "params": [],
+                "body": '{\n  "cluster_id": "<cluster_id>",\n  "validate_only": false\n}',
+            },
         ],
     },
     "Libraries": {
@@ -1380,6 +1411,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "clusters-list":              ("clusters-get",           "clusters",       "cluster_id",    "cluster_id",    "cluster_name", None, [
                                       ("permissions-clusters-get", "bi-shield-check", "Get Cluster Permissions", {"cluster_id": "cluster_id"}),
                                       ("clusters-events", "bi-journal-text", "Get Cluster Events", {"cluster_id": "cluster_id"}),
+                                      ("policies-get-compliance", "bi-patch-check", "Get Cluster Compliance", {"cluster_id": "cluster_id"}),
                                       ("_cmd_execute_nav", "bi-terminal", "Run Command on this cluster", {"clusterId": "cluster_id"}),
                                   ]),
     "jobs-list":                  ("jobs-get",               "jobs",           "job_id",        "job_id",        "settings.name", None, [
@@ -1408,6 +1440,10 @@ LIST_TO_GET: Dict[str, Any] = {
     "git-credentials-list":       ("git-credentials-get",    "credentials",    "credential_id", "credential_id", "git_provider"),
     "instance-pools-list":        ("instance-pools-get",     "instance_pools", "instance_pool_id", "instance_pool_id", "instance_pool_name"),
     "libraries-all-cluster-statuses": ("libraries-cluster-status", "statuses",   "cluster_id",    "cluster_id",    None, None, [
+                                      ("clusters-get", "bi-cpu", "Get Cluster", {"cluster_id": "cluster_id"}),
+                                  ]),
+    "policies-list":              ("policies-list-compliance", "policies",    "policy_id",     "policy_id",     "name"),
+    "policies-list-compliance":   ("policies-get-compliance", "clusters",    "cluster_id",    "cluster_id",    None, None, [
                                       ("clusters-get", "bi-cpu", "Get Cluster", {"cluster_id": "cluster_id"}),
                                   ]),
     "global-init-scripts-list":   ("global-init-scripts-get", "scripts",       "script_id",     "script_id",     "name"),
@@ -2355,6 +2391,10 @@ DOCS_URL_MAP: Dict[str, str] = {
     "instance-profiles-remove":           "workspace/instanceprofiles/remove",
     # Workspace — Cluster Policies
     "policies-list":             "workspace/clusterpolicies/list",
+    # Workspace — Policy Compliance for Clusters
+    "policies-list-compliance":    "workspace/policycomplianceforclusters/listcompliance",
+    "policies-get-compliance":     "workspace/policycomplianceforclusters/getcompliance",
+    "policies-enforce-compliance": "workspace/policycomplianceforclusters/enforcecompliance",
     # Workspace — Libraries
     "libraries-all-cluster-statuses": "workspace/libraries/allclusterstatuses",
     "libraries-cluster-status":       "workspace/libraries/clusterstatus",
