@@ -687,6 +687,48 @@ API_CATALOG: Dict[str, Any] = {
             },
         ],
     },
+    "Libraries": {
+        "icon": "bi-bookshelf",
+        "color": "#a78bfa",
+        "endpoints": [
+            {
+                "id": "libraries-all-cluster-statuses",
+                "name": "All Cluster Library Statuses",
+                "method": "GET",
+                "path": "/api/2.0/libraries/all-cluster-statuses",
+                "description": "Returns library statuses for all clusters in the workspace, including library installation states and any errors.",
+                "params": [],
+                "body": None,
+            },
+            {
+                "id": "libraries-cluster-status",
+                "name": "Cluster Library Status",
+                "method": "GET",
+                "path": "/api/2.0/libraries/cluster-status",
+                "description": "Returns the status of all libraries on a specific cluster, including pending, installing, installed, failed, and uninstalled libraries.",
+                "params": [_p("cluster_id", "The unique identifier of the cluster.", required=True)],
+                "body": None,
+            },
+            {
+                "id": "libraries-install",
+                "name": "Install Libraries",
+                "method": "POST",
+                "path": "/api/2.0/libraries/install",
+                "description": "Installs libraries on a cluster. Installation is asynchronous; libraries are installed once the cluster is RUNNING. Supports jar, egg, whl, pypi, maven, cran, and requirements library types.",
+                "params": [],
+                "body": '{\n  "cluster_id": "<cluster_id>",\n  "libraries": [\n    {"pypi": {"package": "simplejson==3.8.0"}},\n    {"jar": "dbfs:/mnt/libraries/library.jar"},\n    {"whl": "dbfs:/mnt/libraries/library.whl"},\n    {"maven": {"coordinates": "org.jsoup:jsoup:1.7.2", "exclusions": []}},\n    {"cran": {"package": "ggplot2"}},\n    {"requirements": "dbfs:/path/to/requirements.txt"}\n  ]\n}',
+            },
+            {
+                "id": "libraries-uninstall",
+                "name": "Uninstall Libraries",
+                "method": "POST",
+                "path": "/api/2.0/libraries/uninstall",
+                "description": "Marks libraries on a cluster to be uninstalled. The libraries are not actually uninstalled until the cluster is restarted.",
+                "params": [],
+                "body": '{\n  "cluster_id": "<cluster_id>",\n  "libraries": [\n    {"pypi": {"package": "simplejson==3.8.0"}}\n  ]\n}',
+            },
+        ],
+    },
     "Repos": {
         "icon": "bi-git",
         "color": "#fb7185",
@@ -1365,6 +1407,9 @@ LIST_TO_GET: Dict[str, Any] = {
                                   ]),
     "git-credentials-list":       ("git-credentials-get",    "credentials",    "credential_id", "credential_id", "git_provider"),
     "instance-pools-list":        ("instance-pools-get",     "instance_pools", "instance_pool_id", "instance_pool_id", "instance_pool_name"),
+    "libraries-all-cluster-statuses": ("libraries-cluster-status", "statuses",   "cluster_id",    "cluster_id",    None, None, [
+                                      ("clusters-get", "bi-cpu", "Get Cluster", {"cluster_id": "cluster_id"}),
+                                  ]),
     "global-init-scripts-list":   ("global-init-scripts-get", "scripts",       "script_id",     "script_id",     "name"),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
@@ -2215,6 +2260,7 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Instance Pools":      "workspace/instancepools",
     "Instance Profiles":   "workspace/instanceprofiles",
     "Cluster Policies":    "workspace/clusterpolicies",
+    "Libraries":           "workspace/libraries",
     "Repos":               "workspace/repos",
     "Git Credentials":     "workspace/gitcredentials",
     "Global Init Scripts": "workspace/globalinitscripts",
@@ -2309,6 +2355,11 @@ DOCS_URL_MAP: Dict[str, str] = {
     "instance-profiles-remove":           "workspace/instanceprofiles/remove",
     # Workspace — Cluster Policies
     "policies-list":             "workspace/clusterpolicies/list",
+    # Workspace — Libraries
+    "libraries-all-cluster-statuses": "workspace/libraries/allclusterstatuses",
+    "libraries-cluster-status":       "workspace/libraries/clusterstatus",
+    "libraries-install":              "workspace/libraries/install",
+    "libraries-uninstall":            "workspace/libraries/uninstall",
     # Workspace — Repos
     "repos-list":                "workspace/repos/list",
     # Workspace — Permissions
