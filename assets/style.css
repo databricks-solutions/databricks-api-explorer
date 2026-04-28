@@ -312,6 +312,25 @@ body {
 
 .ep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 
+.ep-legacy {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(245,158,11,0.15);
+  color: var(--orange);
+  border: 1px solid rgba(245,158,11,0.35);
+}
+.ep-legacy-detail {
+  font-size: 10px;
+  padding: 3px 7px;
+  margin-left: 4px;
+}
+
 /* Sidebar endpoint doc link icon — always visible, subtly dim */
 .ep-doc-link {
   display: inline-flex;

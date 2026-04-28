@@ -1111,6 +1111,8 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
                 html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
                 html.Span(ep["name"], className="ep-name"),
             ]
+            if ep.get("legacy"):
+                children.append(html.Span("LEGACY", className="ep-legacy", title="Legacy API — prefer the newer version"))
             doc_url = get_doc_url(ep["id"], cloud)
             if doc_url:
                 children.append(html.A(
@@ -3930,6 +3932,8 @@ def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud, scope):
     cat_color = endpoint.get("category_color", "#00d4ff")
     doc_url = get_doc_url(endpoint["id"], cloud)
     name_children = [html.Span(endpoint["name"])]
+    if endpoint.get("legacy"):
+        name_children.append(html.Span("LEGACY", className="ep-legacy ep-legacy-detail", title="Legacy API — prefer the newer version"))
     if doc_url:
         name_children.append(html.A(
             html.I(className="bi bi-box-arrow-up-right"),
