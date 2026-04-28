@@ -716,6 +716,28 @@ API_CATALOG: Dict[str, Any] = {
                 "params": [],
                 "body": '{\n  "cluster_id": "<cluster_id>",\n  "validate_only": false\n}',
             },
+            {
+                "id": "policy-families-list",
+                "name": "List Policy Families",
+                "method": "GET",
+                "path": "/api/2.0/policy-families",
+                "description": "Returns the list of policy definition families that the user has access to. Policy families are templates that can be used to create cluster policies.",
+                "params": [
+                    _p("max_results", "Maximum number of policy families to return.", type_=INT),
+                    _p("page_token", "A token that can be used to get the next page of results."),
+                ],
+                "body": None,
+            },
+            {
+                "id": "policy-families-get",
+                "name": "Get Policy Family",
+                "method": "GET",
+                "path": "/api/2.0/policy-families/{policy_family_id}",
+                "description": "Retrieves the policy definition family for the given family ID.",
+                "params": [_p("policy_family_id", "The family ID about which to retrieve information.", required=True)],
+                "path_params": ["policy_family_id"],
+                "body": None,
+            },
         ],
     },
     "Libraries": {
@@ -1446,6 +1468,7 @@ LIST_TO_GET: Dict[str, Any] = {
     "policies-list-compliance":   ("policies-get-compliance", "clusters",    "cluster_id",    "cluster_id",    None, None, [
                                       ("clusters-get", "bi-cpu", "Get Cluster", {"cluster_id": "cluster_id"}),
                                   ]),
+    "policy-families-list":       ("policy-families-get",    "policy_families", "policy_family_id", "policy_family_id", "name"),
     "global-init-scripts-list":   ("global-init-scripts-get", "scripts",       "script_id",     "script_id",     "name"),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
@@ -2395,6 +2418,9 @@ DOCS_URL_MAP: Dict[str, str] = {
     "policies-list-compliance":    "workspace/policycomplianceforclusters/listcompliance",
     "policies-get-compliance":     "workspace/policycomplianceforclusters/getcompliance",
     "policies-enforce-compliance": "workspace/policycomplianceforclusters/enforcecompliance",
+    # Workspace — Policy Families
+    "policy-families-list":      "workspace/policyfamilies/list",
+    "policy-families-get":       "workspace/policyfamilies/get",
     # Workspace — Libraries
     "libraries-all-cluster-statuses": "workspace/libraries/allclusterstatuses",
     "libraries-cluster-status":       "workspace/libraries/clusterstatus",
