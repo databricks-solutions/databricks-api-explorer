@@ -446,7 +446,7 @@ def make_api_call(
 
     t0 = time.perf_counter()
     try:
-        is_read = method.upper() in ("GET", "DELETE")
+        is_read = method.upper() in ("GET", "DELETE", "HEAD")
         if is_read:
             post_kwargs = {}
         elif is_legacy_form:

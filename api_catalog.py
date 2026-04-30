@@ -542,6 +542,187 @@ API_CATALOG: Dict[str, Any] = {
                 "params": [_p("path", "The path of the file or directory.", required=True)],
                 "body": None,
             },
+            {
+                "id": "dbfs-read",
+                "name": "Read File",
+                "method": "GET",
+                "path": "/api/2.0/dbfs/read",
+                "description": "Returns the contents of a file (base64-encoded). Files larger than 1 MB must be read in chunks via offset and length.",
+                "params": [
+                    _p("path", "The path of the file to read.", required=True),
+                    _p("offset", "The offset to read from in bytes.", type_=INT),
+                    _p("length", "The number of bytes to read (max 1 MB / 1048576).", type_=INT),
+                ],
+                "body": None,
+            },
+            {
+                "id": "dbfs-create",
+                "name": "Open Upload Stream",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/create",
+                "description": "Opens a stream for writing to a file. Returns a handle used by add-block and close to upload the contents in chunks.",
+                "params": [],
+                "body": '{\n  "path": "/tmp/example.txt",\n  "overwrite": true\n}',
+            },
+            {
+                "id": "dbfs-add-block",
+                "name": "Append Block",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/add-block",
+                "description": "Appends a block of data (base64-encoded, up to 1 MB) to the upload stream identified by handle.",
+                "params": [],
+                "body": '{\n  "handle": 0,\n  "data": ""\n}',
+            },
+            {
+                "id": "dbfs-close",
+                "name": "Close Upload Stream",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/close",
+                "description": "Closes the upload stream identified by handle, committing the file.",
+                "params": [],
+                "body": '{\n  "handle": 0\n}',
+            },
+            {
+                "id": "dbfs-put",
+                "name": "Put File (Single-Shot Upload)",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/put",
+                "description": "Uploads a file in a single request. The contents must be base64-encoded and at most 1 MB.",
+                "params": [],
+                "body": '{\n  "path": "/tmp/example.txt",\n  "contents": "",\n  "overwrite": true\n}',
+            },
+            {
+                "id": "dbfs-mkdirs",
+                "name": "Create Directory",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/mkdirs",
+                "description": "Creates the given directory and any necessary parent directories. Idempotent if the directory already exists.",
+                "params": [],
+                "body": '{\n  "path": "/tmp/new-dir"\n}',
+            },
+            {
+                "id": "dbfs-move",
+                "name": "Move",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/move",
+                "description": "Moves a file or directory between DBFS paths. The source and destination must both be on DBFS.",
+                "params": [],
+                "body": '{\n  "source_path": "/tmp/source",\n  "destination_path": "/tmp/dest"\n}',
+            },
+            {
+                "id": "dbfs-delete",
+                "name": "Delete",
+                "method": "POST",
+                "path": "/api/2.0/dbfs/delete",
+                "description": "Deletes the file or directory at the given path. Set recursive=true to delete a non-empty directory.",
+                "params": [],
+                "body": '{\n  "path": "/tmp/to-delete",\n  "recursive": false\n}',
+            },
+        ],
+    },
+    "Files": {
+        "icon": "bi-file-earmark",
+        "color": "#22c55e",
+        "endpoints": [
+            {
+                "id": "files-list-directory-contents",
+                "name": "List Directory Contents",
+                "method": "GET",
+                "path": "/api/2.0/fs/directories{directory_path}",
+                "description": "Lists the contents of a UC Volume directory. Tip: list your volumes first via Unity Catalog → List Volumes to find a real path.",
+                "params": [
+                    _p("directory_path", "Path under /Volumes/<catalog>/<schema>/<volume> — must point to an existing UC Volume; the API rejects '/' or empty values.", required=True, default="/Volumes/main/default/myvolume"),
+                    _p("page_token", "Opaque token for paginating results."),
+                    _p("page_size", "Maximum number of items to return per page.", type_=INT),
+                ],
+                "body": None,
+                "path_params": ["directory_path"],
+            },
+            {
+                "id": "files-get-directory-metadata",
+                "name": "Get Directory Metadata",
+                "method": "HEAD",
+                "path": "/api/2.0/fs/directories{directory_path}",
+                "description": "Returns metadata for a directory (existence and headers only, no body).",
+                "params": [
+                    _p("directory_path", "Path under /Volumes/<catalog>/<schema>/<volume>.", required=True, default="/Volumes/main/default/myvolume"),
+                ],
+                "body": None,
+                "path_params": ["directory_path"],
+            },
+            {
+                "id": "files-create-directory",
+                "name": "Create Directory",
+                "method": "PUT",
+                "path": "/api/2.0/fs/directories{directory_path}",
+                "description": "Creates an empty directory in a UC Volume. Idempotent — succeeds if the directory already exists.",
+                "params": [
+                    _p("directory_path", "Path under /Volumes/<catalog>/<schema>/<volume> for the new directory.", required=True, default="/Volumes/main/default/myvolume/new-dir"),
+                ],
+                "body": None,
+                "path_params": ["directory_path"],
+            },
+            {
+                "id": "files-delete-directory",
+                "name": "Delete Directory",
+                "method": "DELETE",
+                "path": "/api/2.0/fs/directories{directory_path}",
+                "description": "Deletes an empty directory. Returns an error if the directory is not empty.",
+                "params": [
+                    _p("directory_path", "Path under /Volumes/<catalog>/<schema>/<volume>.", required=True),
+                ],
+                "body": None,
+                "path_params": ["directory_path"],
+            },
+            {
+                "id": "files-get-metadata",
+                "name": "Get File Metadata",
+                "method": "HEAD",
+                "path": "/api/2.0/fs/files{file_path}",
+                "description": "Returns metadata for a file (existence, content-length, content-type) via response headers.",
+                "params": [
+                    _p("file_path", "Path under /Volumes/<catalog>/<schema>/<volume>/<file>.", required=True, default="/Volumes/main/default/myvolume/myfile.txt"),
+                ],
+                "body": None,
+                "path_params": ["file_path"],
+            },
+            {
+                "id": "files-download",
+                "name": "Download File",
+                "method": "GET",
+                "path": "/api/2.0/fs/files{file_path}",
+                "description": "Downloads the contents of a file. Response is the raw file bytes — not JSON. Useful for small text files.",
+                "params": [
+                    _p("file_path", "Path under /Volumes/<catalog>/<schema>/<volume>/<file>.", required=True, default="/Volumes/main/default/myvolume/myfile.txt"),
+                ],
+                "body": None,
+                "path_params": ["file_path"],
+            },
+            {
+                "id": "files-upload",
+                "name": "Upload File",
+                "method": "PUT",
+                "path": "/api/2.0/fs/files{file_path}",
+                "description": "Uploads a file to a UC Volume. The body is the raw file bytes — not supported via this JSON-based explorer; use the Databricks CLI instead.",
+                "params": [
+                    _p("file_path", "Path under /Volumes/<catalog>/<schema>/<volume>/<file>.", required=True, default="/Volumes/main/default/myvolume/myfile.txt"),
+                    _p("overwrite", "Whether to overwrite an existing file.", type_=BOOL),
+                ],
+                "body": None,
+                "path_params": ["file_path"],
+            },
+            {
+                "id": "files-delete",
+                "name": "Delete File",
+                "method": "DELETE",
+                "path": "/api/2.0/fs/files{file_path}",
+                "description": "Deletes a file from a UC Volume.",
+                "params": [
+                    _p("file_path", "Path under /Volumes/<catalog>/<schema>/<volume>/<file>.", required=True),
+                ],
+                "body": None,
+                "path_params": ["file_path"],
+            },
         ],
     },
     "SQL Warehouses": {
@@ -1768,7 +1949,11 @@ LIST_TO_GET: Dict[str, Any] = {
     "policy-families-list":       ("policy-families-get",    "policy_families", "policy_family_id", "policy_family_id", "name"),
     "global-init-scripts-list":   ("global-init-scripts-get", "scripts",       "script_id",     "script_id",     "name"),
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
+    "uc-volumes-list":            ("files-list-directory-contents", "volumes", "name",         "directory_path", "full_name", None, None, "/Volumes/{catalog_name}/{schema_name}/{name}"),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
+    "files-list-directory-contents": ("files-get-metadata",   "contents",       "path",          "file_path",     "name", None, [
+                                      ("files-download", "bi-download", "Download File", {"file_path": "path"}),
+                                  ]),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
     "lakebase-instances-list":    ("lakebase-instances-get", "database_instances", "name",      "name",          None),
     "pg-branches-list":           ("pg-branches-get",        "branches",           "@name",               "branch_id",  None, {"project_id": "@parent"}, [
@@ -2457,6 +2642,7 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
     get_id, list_key, id_field, param_name, label_field = mapping[:5]
     extra_params = mapping[5] if len(mapping) > 5 else None
     actions_def = mapping[6] if len(mapping) > 6 else None
+    value_template = mapping[7] if len(mapping) > 7 else None
     if not get_id or not param_name:
         return []
     # "@field" means: use field, but take only the last path segment as the value
@@ -2477,6 +2663,11 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
             continue
         if strip_prefix and isinstance(value, str) and "/" in value:
             value = value.rsplit("/", 1)[-1]
+        if value_template and isinstance(item, dict):
+            try:
+                value = value_template.format_map(item)
+            except (KeyError, IndexError, ValueError):
+                continue
         label = _nested_get(item, label_field) if label_field else None
         label = str(label) if label else str(value)
         if label != str(value):
@@ -2526,6 +2717,14 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         }
         if endpoint_id == "clusters-list":
             chip["state"] = item.get("state")
+        if endpoint_id == "files-list-directory-contents":
+            if item.get("is_directory") is True:
+                chip["get_id"] = "files-list-directory-contents"
+                chip["param"] = "directory_path"
+                chip["actions"] = []
+            else:
+                chip["get_id"] = "files-get-metadata"
+                chip["param"] = "file_path"
         chips.append(chip)
     return chips
 
@@ -2605,6 +2804,7 @@ CATEGORY_DOCS_MAP: Dict[str, str] = {
     "Lakeflow":            "workspace/jobs",
     "Workspace":           "workspace/workspace",
     "DBFS":                "workspace/dbfs",
+    "Files":               "workspace/files",
     "SQL Warehouses":      "workspace/warehouses",
     "Unity Catalog":       "workspace/catalogs",
     "MLflow":              "workspace/experiments",
@@ -2679,6 +2879,23 @@ DOCS_URL_MAP: Dict[str, str] = {
     # Workspace — DBFS
     "dbfs-list":                 "workspace/dbfs/list",
     "dbfs-get-status":           "workspace/dbfs/getstatus",
+    "dbfs-read":                 "workspace/dbfs/read",
+    "dbfs-create":               "workspace/dbfs/create",
+    "dbfs-add-block":            "workspace/dbfs/addblock",
+    "dbfs-close":                "workspace/dbfs/close",
+    "dbfs-put":                  "workspace/dbfs/put",
+    "dbfs-mkdirs":               "workspace/dbfs/mkdirs",
+    "dbfs-move":                 "workspace/dbfs/move",
+    "dbfs-delete":               "workspace/dbfs/delete",
+    # Workspace — Files (UC Volumes)
+    "files-list-directory-contents": "workspace/files/listdirectorycontents",
+    "files-get-directory-metadata":  "workspace/files/getdirectorymetadata",
+    "files-create-directory":        "workspace/files/createdirectory",
+    "files-delete-directory":        "workspace/files/deletedirectory",
+    "files-get-metadata":            "workspace/files/getmetadata",
+    "files-download":                "workspace/files/download",
+    "files-upload":                  "workspace/files/upload",
+    "files-delete":                  "workspace/files/delete",
     # Workspace — SQL Warehouses
     "sql-warehouses-list":       "workspace/warehouses/list",
     "sql-warehouses-get":        "workspace/warehouses/get",
