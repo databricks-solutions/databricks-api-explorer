@@ -958,6 +958,36 @@ def build_response_panel(
             title=f"SELECT * FROM {full_name}",
         )
 
+    # "Pretty-print" + "Download" buttons for Files API Download File responses
+    file_pretty_btn = None
+    file_download_btn = None
+    if endpoint_id == "files-download" and 200 <= code < 300:
+        file_pretty_btn = html.Button(
+            [html.I(className="bi bi-file-earmark-text me-1"), "Pretty-print"],
+            id="file-pretty-btn",
+            n_clicks=0,
+            className="sql-query-link-btn ms-2",
+            title="Parse content as JSON / CSV / Parquet and render",
+        )
+        file_download_btn = html.Button(
+            [html.I(className="bi bi-download me-1"), "Download"],
+            id="file-download-btn",
+            n_clicks=0,
+            className="sql-query-link-btn ms-2",
+            title="Download the file to your computer",
+        )
+        body_children.append(html.Div(
+            [
+                html.Div([
+                    html.Span("Pretty-printed content", className="decoded-script-title"),
+                    html.Span("Click \"Pretty-print\" again to close", className="decoded-script-hint"),
+                ], className="decoded-script-header"),
+                html.Div(id="file-pretty-content", className="file-pretty-content"),
+            ],
+            id="file-pretty-panel",
+            className="decoded-script-panel hidden",
+        ))
+
     # "Decode script" button + overlay for Get Global Init Script responses
     decode_btn = None
     if endpoint_id == "global-init-scripts-get" and isinstance(data, dict) and data.get("script"):
@@ -993,6 +1023,8 @@ def build_response_panel(
             html.Span(item_count, className="timing-label") if item_count else None,
             query_btn,
             decode_btn,
+            file_pretty_btn,
+            file_download_btn,
             html.Span(result.get("url", ""), className="response-url ms-auto"),
         ], className="response-meta"),
         html.Div(body_children, className="response-body"),
@@ -2534,6 +2566,8 @@ app.layout = html.Div([
     dcc.Interval(id="sso-poller", interval=1000, disabled=True, n_intervals=0),
     dcc.Interval(id="page-ticker", interval=500, disabled=True, n_intervals=0),
     dcc.Interval(id="load-all-ticker", interval=600, disabled=True, n_intervals=0),
+    dcc.Download(id="file-download"),
+    dcc.Store(id="file-pretty-state", data={"open": False, "for_path": None}),
 
     dcc.Store(id="dropdown-open", data=False),       # tracks dropdown visibility
     dcc.Store(id="response-cache", data={}),         # {endpoint_id: {result, chips}} — cached API responses
@@ -3997,9 +4031,11 @@ def restore_cached_response(endpoint, cache):
     """Callback 9b: Restore a previously cached response when switching endpoints."""
     if not endpoint:
         return _RESPONSE_EMPTY, None
-    # When _prefill is present, callback 16 already wrote the response — skip
-    # (unless _from_history, where we need to restore from cache ourselves)
-    if endpoint.get("_prefill") and not endpoint.get("_from_history"):
+    # When _prefill is present, callback 16 wrote (or will write) the response — skip:
+    #   • forward nav: iframe link → callback 16 handles
+    #   • back nav with _link: popstate replays iframe-link-click → callback 16 handles
+    # Only fall through (restore from cache) for back nav without a link to replay.
+    if endpoint.get("_prefill") and (not endpoint.get("_from_history") or endpoint.get("_link")):
         return no_update, no_update
     ep_id = endpoint.get("id", "")
     cached = (cache or {}).get(ep_id)
@@ -4053,6 +4089,10 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
         val = params.pop(pp, "")
         if not val:
             return build_error_panel(f"Path parameter '{pp}' is required."), no_update, time.time(), None, no_update, {"display": "none"}, ""
+        if pp in ("directory_path", "file_path") and str(val).strip("/") == "":
+            return build_error_panel(
+                f"Path parameter '{pp}' must point to a UC Volume (e.g. /Volumes/<catalog>/<schema>/<volume>). The Files API does not allow listing the root."
+            ), no_update, time.time(), None, no_update, {"display": "none"}, ""
         path = path.replace(f"{{{pp}}}", str(val))
 
     method = endpoint.get("method", "GET")
@@ -4827,7 +4867,11 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         body=body,
     )
     chips = extract_chips(get_id, result["data"]) if result["success"] else []
-    endpoint_with_prefill = {**endpoint, "_prefill": prefill}
+    # Stash a sanitised copy of the click payload so popstate can replay it.
+    link_for_history = {k: v for k, v in link_data.items() if k not in ("_from_history", "_t")}
+    endpoint_with_prefill = {**endpoint, "_prefill": prefill, "_link": link_for_history}
+    if link_data.get("_from_history"):
+        endpoint_with_prefill["_from_history"] = True
     new_cache = dict(cache or {})
     new_cache[get_id] = {"result": result, "chips": chips or None}
     last_req = {
@@ -5906,6 +5950,14 @@ app.clientside_callback(
                 if (ep) ep._from_history = true;
                 window.dash_clientside.set_props(
                     'selected-endpoint', {data: ep || null});
+                // If the popped state was reached via an inline link (e.g. drilling into
+                // a directory), replay that click so the API response is re-fetched for
+                // the previous parameters — not just left showing the latest call.
+                if (ep && ep._link) {
+                    window.dash_clientside.set_props('iframe-link-click', {
+                        data: Object.assign({}, ep._link, {_from_history: true, _t: Date.now()})
+                    });
+                }
             });
         }
         if (endpoint && !endpoint._from_history) {
@@ -5918,6 +5970,138 @@ app.clientside_callback(
     Input("selected-endpoint", "data"),
     prevent_initial_call=False,
 )
+
+
+# ── Files API: Pretty-print + Download buttons ───────────────────────────────
+
+
+def _fetch_file_bytes(last_req: Dict[str, Any], conn_config: Dict[str, Any]) -> tuple:
+    """Re-fetch the Files API GET response as raw bytes.
+
+    Returns a tuple ``(bytes_or_none, error_message_or_none)``.
+    """
+    if not last_req or last_req.get("endpoint_id") != "files-download":
+        return None, "No download response in context."
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return None, "No workspace connection. Configure one in the user menu."
+    path = last_req.get("path", "")
+    if not path:
+        return None, "Missing path in last request."
+    try:
+        r = requests.get(
+            f"{host}{path}",
+            headers={"Authorization": f"Bearer {token}", "User-Agent": "DatabricksAPIExplorer/1.0"},
+            timeout=60,
+        )
+        if r.status_code >= 400:
+            return None, f"HTTP {r.status_code}: {r.text[:300]}"
+        return r.content, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _pretty_print_content(raw: bytes, file_path: str) -> html.Div:
+    """Render bytes as a pretty-printed view based on file extension."""
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    if ext == "json":
+        try:
+            obj = json.loads(raw.decode("utf-8"))
+            return html.Pre(json.dumps(obj, indent=2), className="decoded-script-pre")
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            return html.Div(f"Failed to parse JSON: {e}", className="pretty-error")
+    if ext in ("csv", "tsv"):
+        try:
+            import csv as _csv_mod
+            import io
+            delim = "\t" if ext == "tsv" else ","
+            text = raw.decode("utf-8", errors="replace")
+            rows = list(_csv_mod.reader(io.StringIO(text), delimiter=delim))
+            if not rows:
+                return html.Div("Empty file.", className="pretty-error")
+            headers = rows[0]
+            body_rows = rows[1:1001]
+            table = html.Table([
+                html.Thead(html.Tr([html.Th(h) for h in headers])),
+                html.Tbody([html.Tr([html.Td(c) for c in r]) for r in body_rows]),
+            ], className="csv-table")
+            note = html.Div(f"{len(rows) - 1} rows · showing first {len(body_rows)}", className="pretty-note") if len(rows) - 1 > len(body_rows) else None
+            return html.Div([note, table] if note else [table], className="csv-viewer")
+        except Exception as e:
+            return html.Div(f"Failed to parse CSV: {e}", className="pretty-error")
+    if ext == "parquet":
+        try:
+            import pyarrow.parquet as pq
+            import io
+            table = pq.read_table(io.BytesIO(raw))
+            df = table.to_pylist()
+            if not df:
+                return html.Div("Empty parquet file.", className="pretty-error")
+            headers = list(df[0].keys())
+            body_rows = df[:1000]
+            html_table = html.Table([
+                html.Thead(html.Tr([html.Th(h) for h in headers])),
+                html.Tbody([html.Tr([html.Td(str(r.get(h, ""))) for h in headers]) for r in body_rows]),
+            ], className="csv-table")
+            note = html.Div(
+                f"{table.num_rows} rows · {len(headers)} cols · showing first {len(body_rows)}",
+                className="pretty-note",
+            )
+            return html.Div([note, html_table], className="csv-viewer")
+        except ImportError:
+            return html.Div("pyarrow is not installed. Add 'pyarrow' to requirements.txt.", className="pretty-error")
+        except Exception as e:
+            return html.Div(f"Failed to read parquet: {e}", className="pretty-error")
+    # Fallback: render as text
+    try:
+        text = raw.decode("utf-8")
+        return html.Pre(text[:200000], className="decoded-script-pre")
+    except UnicodeDecodeError:
+        return html.Div(
+            f"Binary file ({len(raw):,} bytes). No pretty-printer for .{ext or 'unknown'} — use Download instead.",
+            className="pretty-error",
+        )
+
+
+@app.callback(
+    Output("file-pretty-content", "children"),
+    Output("file-pretty-panel", "className"),
+    Output("file-pretty-state", "data"),
+    Input("file-pretty-btn", "n_clicks"),
+    State("file-pretty-state", "data"),
+    State("last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def toggle_file_pretty(n_clicks, state, last_req, conn_config):
+    if not n_clicks:
+        return no_update, no_update, no_update
+    state = state or {"open": False, "for_path": None}
+    file_path = (last_req or {}).get("path", "")
+    if state.get("open") and state.get("for_path") == file_path:
+        return no_update, "decoded-script-panel hidden", {"open": False, "for_path": file_path}
+    raw, err = _fetch_file_bytes(last_req, conn_config)
+    if err:
+        return html.Div(err, className="pretty-error"), "decoded-script-panel", {"open": True, "for_path": file_path}
+    return _pretty_print_content(raw, file_path), "decoded-script-panel", {"open": True, "for_path": file_path}
+
+
+@app.callback(
+    Output("file-download", "data"),
+    Input("file-download-btn", "n_clicks"),
+    State("last-request", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def trigger_file_download(n_clicks, last_req, conn_config):
+    if not n_clicks:
+        return no_update
+    raw, err = _fetch_file_bytes(last_req, conn_config)
+    if err or raw is None:
+        return no_update
+    file_path = (last_req or {}).get("path", "")
+    filename = file_path.rsplit("/", 1)[-1] or "download"
+    return dcc.send_bytes(lambda buf: buf.write(raw), filename)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

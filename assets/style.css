@@ -790,6 +790,25 @@ body {
 .decoded-script-pre::-webkit-scrollbar { width: 6px; height: 6px; }
 .decoded-script-pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
+/* Pretty-print panel for Files API Download File responses */
+.file-pretty-content {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 18px;
+}
+.pretty-error {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #ff8a8a;
+  padding: 12px;
+}
+.pretty-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  padding-bottom: 8px;
+}
+
 /* JSON Viewer — takes ALL remaining horizontal space */
 .json-viewer-wrapper {
   flex: 1;
