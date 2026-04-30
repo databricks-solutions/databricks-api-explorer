@@ -1951,8 +1951,8 @@ LIST_TO_GET: Dict[str, Any] = {
     "secrets-list-scopes":        ("secrets-list",           "scopes",         "name",          "scope",         None),
     "uc-volumes-list":            ("files-list-directory-contents", "volumes", "name",         "directory_path", "full_name", None, None, "/Volumes/{catalog_name}/{schema_name}/{name}"),
     "dbfs-list":                  ("dbfs-get-status",        "files",          "path",          "path",          None),
-    "files-list-directory-contents": ("files-get-metadata",   "contents",       "path",          "file_path",     "name", None, [
-                                      ("files-download", "bi-download", "Download File", {"file_path": "path"}),
+    "files-list-directory-contents": ("files-download",       "contents",       "path",          "file_path",     "name", None, [
+                                      ("files-get-metadata", "bi-info-circle", "Get File Metadata", {"file_path": "path"}),
                                   ]),
     "workspace-list":             ("workspace-get-status",   "objects",        "path",          "path",          None),
     "lakebase-instances-list":    ("lakebase-instances-get", "database_instances", "name",      "name",          None),
@@ -2723,7 +2723,7 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
                 chip["param"] = "directory_path"
                 chip["actions"] = []
             else:
-                chip["get_id"] = "files-get-metadata"
+                chip["get_id"] = "files-download"
                 chip["param"] = "file_path"
         chips.append(chip)
     return chips

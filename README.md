@@ -14,31 +14,38 @@ An interactive REST API explorer for Databricks — covering both **Workspace** 
 
 ### API Coverage
 
-- **32 API categories** with **76 endpoints** across both Workspace and Account REST API surfaces
+- **39 API categories** with **189 endpoints** across both Workspace and Account REST API surfaces
 - **Scope switcher** in the sidebar toggles between Workspace and Account API views
 
-#### Workspace APIs (16 categories, 45 endpoints)
+#### Workspace APIs (23 categories, 158 endpoints)
 
 | Category | Endpoints |
 |---|---|
 | Clusters | List, Get, Node Types, Spark Versions, Events |
-| Jobs | List Jobs, Get Job, List Runs, Get Run |
-| Workspace | List Objects, Get Status, Search |
-| DBFS | List Files, Get File Status |
+| Lakeflow | Jobs (list/get/create/update/run/repair), Runs, Pipelines (DLT), Policy Compliance for Jobs |
+| Workspace | List Objects, Get Status |
+| DBFS | List, Get Status, Read, Create / Add Block / Close, Put, Mkdirs, Move, Delete |
+| Files (UC Volumes) | List Directory Contents, Create / Delete Directory, Get Directory Metadata, Download / Upload / Delete File, Get File Metadata |
 | SQL Warehouses | List, Get, List Saved Queries |
 | Unity Catalog | List Catalogs, Schemas, Tables, Volumes, Get Table, Get Metastore |
 | MLflow | Search Experiments, Get Experiment, Search Runs, Registered Models |
 | Model Serving | List Endpoints, Get Endpoint |
-| Pipelines (DLT) | List, Get, List Events |
 | Secrets | List Scopes, List Secrets |
 | Identity (SCIM) | Current User, List Users, List Groups, List Service Principals |
 | Tokens | List Tokens |
-| Instance Pools | List Instance Pools |
-| Cluster Policies | List Cluster Policies |
+| Instance Pools | List, Get, Create, Edit, Delete, Permissions |
+| Instance Profiles | List, Add, Edit, Remove |
+| Cluster Policies | List, Policy Compliance for Clusters, Policy Families |
+| Libraries | All Cluster Statuses, Cluster Status, Install, Uninstall |
 | Repos | List Repos |
+| Git Credentials | List, Get, Create, Update, Delete |
+| Global Init Scripts | List, Get, Create, Update, Delete |
 | Permissions | Get Cluster, Job, and Warehouse Permissions |
+| Data Quality Monitoring | Create / Get / Update / Delete Monitor, Run / List / Get / Cancel Refresh, Regenerate Dashboard |
+| Lakebase Provisioned | Instances, Catalogs, Database / Table / Pipeline / Synced operations |
+| Lakebase Autoscaling | Projects, Branches, Endpoints, Scale-to-zero controls |
 
-#### Account APIs (16 categories, 31 endpoints)
+#### Account APIs (16 categories, 31 endpoints, plus Command Execution legacy 1.2 API)
 
 | Category | Endpoints |
 |---|---|
@@ -96,6 +103,19 @@ An interactive REST API explorer for Databricks — covering both **Workspace** 
 - **Response metadata bar** — HTTP status code (color-coded), latency in ms, item count for list responses, full request URL
 - **CSV viewer** — endpoints that return CSV data (e.g. Usage Download) are rendered as a scrollable HTML table
 - **curl command** — every executed request generates a ready-to-copy `curl` command displayed below the Execute button, with a one-click copy button
+
+### Files & DBFS Browsing
+
+- **Volume drill-down** — in **Unity Catalog → List Volumes**, the volume name is a clickable link that opens **Files → List Directory Contents** with `directory_path` pre-filled to `/Volumes/<catalog>/<schema>/<volume>`
+- **Recursive directory navigation** — in a directory listing, sub-directories (`is_directory: true`) are clickable and recurse into the same endpoint with the new path; files become a single click that downloads them
+- **Per-file action button** — each file row has a secondary action button that opens **Get File Metadata** for that file
+- **Pretty-print viewer** — on the **Download File** response, a *Pretty-print* button parses content based on the file extension and renders it inline:
+  - `.json` → indented JSON
+  - `.csv` / `.tsv` → HTML table (first 1,000 rows)
+  - `.parquet` → table via `pyarrow.parquet` (first 1,000 rows)
+  - other text → raw text preview (first 200 KB)
+- **Save-to-disk** — a *Download* button on the same response streams the raw bytes to the browser via `dcc.Download`, using the filename from the path. Re-fetches with auth so binary content (e.g. Parquet) isn't lossy-decoded
+- **Browser back/forward** — drilling into directories pushes browser history; the back button replays the original click and re-fetches the previous directory listing rather than showing a stale cached response
 
 ### SQL Statement Execution
 
@@ -192,7 +212,7 @@ An interactive REST API explorer for Databricks — covering both **Workspace** 
 |---|---|
 | `app.py` | Dash app, layout, all callbacks (19+ callbacks) |
 | `auth.py` | Auth resolution, profile discovery, account token exchange, `make_api_call()` |
-| `api_catalog.py` | Endpoint catalog (32 categories, 76 endpoints), chip extraction, list-to-get linking |
+| `api_catalog.py` | Endpoint catalog (39 categories, 189 endpoints), chip extraction, list-to-get linking |
 | `version.py` | Auto-incrementing build version counter |
 | `assets/style.css` | Full dark glassmorphism CSS theme |
 | `assets/devtools_patch.js` | Debug bar patches + resizable side panel |
@@ -328,7 +348,7 @@ databricks apps logs databricks-api-explorer --profile <your-profile>
 DatabricksAPIexplorer/
 ├── app.py                        # Main Dash app + all callbacks
 ├── auth.py                       # Auth resolution + API call helper
-├── api_catalog.py                # Endpoint catalog (32 categories, 76 endpoints)
+├── api_catalog.py                # Endpoint catalog (39 categories, 189 endpoints)
 ├── version.py                    # Auto-incrementing build version
 ├── version.txt                   # Current build number (auto-updated)
 ├── requirements.txt              # Python dependencies
