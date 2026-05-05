@@ -19,6 +19,7 @@ Key internal data flows are documented in the *Architecture* and
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -1048,6 +1049,74 @@ def build_error_panel(message: str) -> html.Div:
     ], className="response-container")
 
 
+_NESTED_SEG = re.compile(r"^([^\[\]]+)((?:\[\d+\])*)$")
+
+
+def _set_nested(obj: Any, dotted_key: str, value: Any) -> bool:
+    """Set ``value`` at a dotted path with optional ``[N]`` indexers.
+
+    Walks ``dotted_key`` like ``locations[0].mlflow_experiment.experiment_id``,
+    creating intermediate ``dict`` and ``list`` containers as needed. Returns
+    ``True`` on success, ``False`` if the path conflicts with the existing
+    structure.
+    """
+    parts: List[Any] = []
+    for seg in dotted_key.split("."):
+        m = _NESTED_SEG.match(seg)
+        if not m:
+            return False
+        parts.append(("k", m.group(1)))
+        for idx in re.findall(r"\[(\d+)\]", m.group(2) or ""):
+            parts.append(("i", int(idx)))
+    cur = obj
+    for i in range(len(parts) - 1):
+        kind, key = parts[i]
+        nxt_kind = parts[i + 1][0]
+        if kind == "k":
+            if not isinstance(cur, dict):
+                return False
+            if key not in cur or cur[key] is None:
+                cur[key] = [] if nxt_kind == "i" else {}
+            cur = cur[key]
+        else:
+            if not isinstance(cur, list):
+                return False
+            while len(cur) <= key:
+                cur.append({} if nxt_kind == "k" else [])
+            cur = cur[key]
+    last_kind, last_key = parts[-1]
+    if last_kind == "k":
+        if not isinstance(cur, dict):
+            return False
+        cur[last_key] = value
+    else:
+        if not isinstance(cur, list):
+            return False
+        while len(cur) <= last_key:
+            cur.append(None)
+        cur[last_key] = value
+    return True
+
+
+def _apply_prefill_to_body(body_obj: Any, prefill: Dict[str, Any]) -> None:
+    """Mutate ``body_obj`` in place, applying each prefill key/value.
+
+    Supports flat keys, plural array keys (``foo`` → ``foos: [val]``), and
+    dotted/indexed paths (``locations[0].mlflow_experiment.experiment_id``).
+    """
+    if not isinstance(body_obj, dict):
+        return
+    for k, v in prefill.items():
+        if "." in k or "[" in k:
+            _set_nested(body_obj, k, v)
+            continue
+        plural_key = k + "s"
+        if k in body_obj:
+            body_obj[k] = v
+        elif plural_key in body_obj and isinstance(body_obj[plural_key], list):
+            body_obj[plural_key] = [str(v)]
+
+
 def build_param_form(
     endpoint: Dict[str, Any],
     prefill: Optional[Dict[str, str]] = None,
@@ -1100,11 +1169,7 @@ def build_param_form(
         if prefill and body_value:
             try:
                 body_obj = json.loads(body_value)
-                for k, v in prefill.items():
-                    if k in body_obj:
-                        body_obj[k] = v
-                    elif k + "s" in body_obj and isinstance(body_obj[k + "s"], list):
-                        body_obj[k + "s"] = [str(v)]
+                _apply_prefill_to_body(body_obj, prefill)
                 body_value = json.dumps(body_obj, indent=2)
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -4097,7 +4162,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
 
     method = endpoint.get("method", "GET")
     body = None
-    if method == "POST" and body_text and body_text.strip():
+    if method in ("POST", "PUT", "PATCH") and body_text and body_text.strip():
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError as e:
@@ -4840,25 +4905,24 @@ def handle_iframe_link_click(link_data, conn_config, cache):
 
     method = endpoint.get("method", "GET")
     body = None
-    if method == "POST":
+    if method in ("POST", "PUT", "PATCH"):
         body_template = endpoint.get("body")
         if body_template and query_params:
-            # Parse the template and substitute action params into it
             try:
                 body = json.loads(body_template)
+                _apply_prefill_to_body(body, query_params)
+                # Fall back to setting unmatched flat keys on the body root.
                 for k, v in query_params.items():
-                    # Check for plural array key (e.g. experiment_id → experiment_ids)
-                    plural_key = k + "s"
-                    if plural_key in body and isinstance(body[plural_key], list):
-                        body[plural_key] = [str(v)]
-                    elif k in body:
-                        body[k] = v
-                    else:
-                        body[k] = v
+                    if "." in k or "[" in k:
+                        continue
+                    plural = k + "s"
+                    if k in body or (plural in body and isinstance(body[plural], list)):
+                        continue
+                    body[k] = v
             except (json.JSONDecodeError, TypeError):
-                body = query_params
+                body = dict(query_params)
         elif query_params:
-            body = query_params
+            body = dict(query_params)
         query_params = {}
     result = make_api_call(
         method=method,
@@ -4898,6 +4962,41 @@ app.clientside_callback(
     """,
     Output("sp-dummy", "data"),
     Input("sp-toggle-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# 17b. Immediate sidebar highlight when a side-panel chip / action is clicked.
+#      Server-side handle_iframe_link_click takes ~1-3s (synchronous API call); without
+#      this, users perceive the click as "did nothing" until the response lands.
+app.clientside_callback(
+    """
+    function(item_clicks, action_clicks, chips, btn_ids) {
+        const ctx = window.dash_clientside.callback_context;
+        if (!ctx.triggered || !ctx.triggered.length) return window.dash_clientside.no_update;
+        const t = ctx.triggered[0];
+        if (!t.value || !chips || !btn_ids) return window.dash_clientside.no_update;
+        let target = null;
+        try {
+            const tid = JSON.parse(t.prop_id.split('.')[0]);
+            const chip = chips[tid.index];
+            if (!chip) return window.dash_clientside.no_update;
+            if (tid.type === 'sp-item') {
+                target = chip.get_id;
+            } else if (tid.type === 'sp-action') {
+                const action = (chip.actions || [])[tid.action];
+                target = action && action.gid;
+            }
+        } catch (e) { return window.dash_clientside.no_update; }
+        if (!target || target.startsWith('_')) return window.dash_clientside.no_update;
+        return btn_ids.map(b => b.id === target ? 'endpoint-btn active' : 'endpoint-btn');
+    }
+    """,
+    Output({"type": "endpoint-btn", "id": ALL}, "className", allow_duplicate=True),
+    Input({"type": "sp-item", "index": ALL}, "n_clicks"),
+    Input({"type": "sp-action", "index": ALL, "action": ALL}, "n_clicks"),
+    State("chips-store", "data"),
+    State({"type": "endpoint-btn", "id": ALL}, "id"),
     prevent_initial_call=True,
 )
 
