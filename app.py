@@ -1228,8 +1228,10 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
         title_children = [
             html.I(className=f"bi {cat['icon']} me-2", style={"color": cat["color"]}),
             cat_name,
-            dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"),
         ]
+        if cat.get("legacy"):
+            title_children.append(html.Span("LEGACY", className="ep-legacy cat-legacy", title="Legacy API category — see description for the modern replacement"))
+        title_children.append(dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"))
         if cat_doc_url:
             title_children.append(html.A(
                 html.I(className="bi bi-box-arrow-up-right"),
