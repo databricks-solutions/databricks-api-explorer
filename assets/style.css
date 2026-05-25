@@ -330,6 +330,9 @@ body {
   padding: 3px 7px;
   margin-left: 4px;
 }
+.cat-legacy {
+  margin-left: 8px;
+}
 
 /* Sidebar endpoint doc link icon — always visible, subtly dim */
 .ep-doc-link {
