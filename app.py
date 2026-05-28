@@ -37,12 +37,15 @@ from api_catalog import (
     API_CATALOG,
     COMMAND_API_CATALOG,
     ENDPOINT_MAP,
+    MCP_API_CATALOG,
     TOTAL_ACCOUNT_CATEGORIES,
     TOTAL_ACCOUNT_ENDPOINTS,
     TOTAL_CATEGORIES,
     TOTAL_COMMAND_CATEGORIES,
     TOTAL_COMMAND_ENDPOINTS,
     TOTAL_ENDPOINTS,
+    TOTAL_MCP_CATEGORIES,
+    TOTAL_MCP_ENDPOINTS,
     detect_cloud,
     extract_chips,
     get_category_doc_url,
@@ -70,6 +73,7 @@ from version import VERSION
 _WS_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(API_CATALOG)}
 _ACC_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(ACCOUNT_API_CATALOG)}
 _CMD_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(COMMAND_API_CATALOG)}
+_MCP_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(MCP_API_CATALOG)}
 
 # ── Dash init ─────────────────────────────────────────────────────────────────
 app = dash.Dash(
@@ -1120,6 +1124,7 @@ def _apply_prefill_to_body(body_obj: Any, prefill: Dict[str, Any]) -> None:
 def build_param_form(
     endpoint: Dict[str, Any],
     prefill: Optional[Dict[str, str]] = None,
+    widget_options: Optional[Dict[str, List[Dict[str, str]]]] = None,
 ) -> html.Div:
     """Generate the parameter input form for an endpoint.
 
@@ -1148,13 +1153,29 @@ def build_param_form(
             dbc.Badge("required", color="danger", className="param-badge") if p.get("required")
             else dbc.Badge("optional", color="secondary", className="param-badge"),
         ], className="param-label")
-        inp = dbc.Input(
-            id={"type": "param-input", "name": p["name"]},
-            type="number" if p["type"] == "integer" else "text",
-            placeholder=p.get("description", ""),
-            value=str(prefill[p["name"]]) if p["name"] in prefill else (p.get("default", "") or ""),
-            className="param-input font-mono",
-        )
+        widget = p.get("widget", "")
+        prefilled_value = str(prefill[p["name"]]) if p["name"] in prefill else (p.get("default", "") or "")
+        if widget in ("uc-catalog", "uc-schema"):
+            opts = (widget_options or {}).get(p["name"], [])
+            if not opts and prefilled_value:
+                opts = [{"label": prefilled_value, "value": prefilled_value}]
+            elif prefilled_value and not any(o.get("value") == prefilled_value for o in opts):
+                opts = [{"label": prefilled_value, "value": prefilled_value}, *opts]
+            inp = dbc.Select(
+                id={"type": "param-input", "name": p["name"]},
+                options=opts,
+                value=prefilled_value or None,
+                placeholder=("Select a catalog…" if widget == "uc-catalog" else "Select a catalog first"),
+                className="param-input font-mono",
+            )
+        else:
+            inp = dbc.Input(
+                id={"type": "param-input", "name": p["name"]},
+                type="number" if p["type"] == "integer" else "text",
+                placeholder=p.get("description", ""),
+                value=prefilled_value,
+                className="param-input font-mono",
+            )
         rows.append(html.Div([label_row, html.Div(p.get("description", ""), className="param-desc"), inp], className="param-row"))
 
     if not params and not body_template:
@@ -1261,6 +1282,7 @@ def build_sidebar() -> html.Div:
                 {"label": html.Span([html.I(className="bi bi-globe me-2"), "Account APIs"]), "value": "account"},
                 {"label": html.Span([html.I(className="bi bi-database me-2"), "SQL Execution"]), "value": "sql"},
                 {"label": html.Span([html.I(className="bi bi-terminal me-2"), "Command Execution"]), "value": "commands"},
+                {"label": html.Span([html.I(className="bi bi-plug me-2"), "MCP ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "mcp"},
                 {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
             ],
             value="workspace",
@@ -1301,6 +1323,15 @@ def build_sidebar() -> html.Div:
             start_collapsed=True,
             always_open=True,
             id="api-accordion-commands",
+            className="api-accordion",
+            style={"display": "none"},
+        ),
+        dbc.Accordion(
+            _build_accordion_items(MCP_API_CATALOG),
+            start_collapsed=False,
+            always_open=True,
+            active_item=[f"item-{i}" for i in range(len(MCP_API_CATALOG))],
+            id="api-accordion-mcp",
             className="api-accordion",
             style={"display": "none"},
         ),
@@ -2698,12 +2729,14 @@ app.clientside_callback(
         var ws  = document.getElementById('api-accordion');
         var acc = document.getElementById('api-accordion-account');
         var cmd = document.getElementById('api-accordion-commands');
+        var mcp = document.getElementById('api-accordion-mcp');
         var sql = document.getElementById('sql-browser-container');
         var lb  = document.getElementById('lakebase-browser-container');
         var sidebar = document.getElementById('sidebar');
         if (ws)  ws.style.display  = scope === 'workspace' ? '' : 'none';
         if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
         if (cmd) cmd.style.display = scope === 'commands'  ? '' : 'none';
+        if (mcp) mcp.style.display = scope === 'mcp'       ? '' : 'none';
         if (sql) sql.style.display = scope === 'sql'       ? '' : 'none';
         if (lb)  lb.style.display  = scope === 'lakebase'  ? '' : 'none';
         if (sidebar) {
@@ -3951,6 +3984,8 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
         catalog = ACCOUNT_API_CATALOG
     elif scope == "commands":
         catalog = COMMAND_API_CATALOG
+    elif scope == "mcp":
+        catalog = MCP_API_CATALOG
     else:
         catalog = API_CATALOG
     cat_keys = list(catalog.keys())
@@ -3973,6 +4008,7 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
     Output("api-accordion", "active_item"),
     Output("api-accordion-account", "active_item"),
     Output("api-accordion-commands", "active_item"),
+    Output("api-accordion-mcp", "active_item"),
     Input("selected-endpoint", "data"),
     Input("api-scope", "data"),
     State({"type": "endpoint-btn", "id": ALL}, "id"),
@@ -3989,19 +4025,23 @@ def sync_active_button(endpoint, _scope, btn_ids):
         catalog = ACCOUNT_API_CATALOG
     elif scope == "commands":
         catalog = COMMAND_API_CATALOG
+    elif scope == "mcp":
+        catalog = MCP_API_CATALOG
     else:
         catalog = API_CATALOG
     cat_keys = list(catalog.keys())
-    ws_item, acct_item, cmd_item = no_update, no_update, no_update
+    ws_item, acct_item, cmd_item, mcp_item = no_update, no_update, no_update, no_update
     if cat_name in cat_keys:
         item = f"item-{cat_keys.index(cat_name)}"
         if scope == "account":
             acct_item = [item]
         elif scope == "commands":
             cmd_item = [item]
+        elif scope == "mcp":
+            mcp_item = [item]
         else:
             ws_item = [item]
-    return classes, ws_item, acct_item, cmd_item
+    return classes, ws_item, acct_item, cmd_item, mcp_item
 
 
 # 9. Render endpoint detail
@@ -4053,7 +4093,7 @@ def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud, scope):
         html.Div(endpoint.get("description", ""), className="endpoint-desc"),
         html.Hr(className="divider"),
         html.Div("Parameters", className="param-section-title"),
-        build_param_form(endpoint, prefill),
+        build_param_form(endpoint, prefill, widget_options=_fetch_widget_options(endpoint, conn_config, prefill)),
         html.Hr(className="divider"),
         html.Div([
             html.Button(
@@ -4111,6 +4151,76 @@ def restore_cached_response(endpoint, cache):
     result = cached["result"]
     chips = cached.get("chips")
     return build_response_panel(result, chips, endpoint_id=ep_id), chips
+
+
+# 9c. Populate UC catalog/schema dropdowns when an endpoint with widget params is selected.
+def _has_widget(endpoint: Optional[Dict], widget_kind: str) -> bool:
+    if not endpoint:
+        return False
+    return any(p.get("widget") == widget_kind for p in endpoint.get("params", []))
+
+
+def _fetch_widget_options(
+    endpoint: Dict[str, Any],
+    conn_config: Optional[Dict[str, Any]],
+    prefill: Dict[str, Any],
+) -> Dict[str, List[Dict[str, str]]]:
+    """Fetch dropdown options for dynamic widget params at form-render time.
+
+    Avoids the race between rebuilding the form and patching its props by
+    populating options inline before the form is rendered.
+    """
+    out: Dict[str, List[Dict[str, str]]] = {}
+    needs_catalogs = any(p.get("widget") == "uc-catalog" for p in endpoint.get("params", []))
+    needs_schemas = any(p.get("widget") == "uc-schema" for p in endpoint.get("params", []))
+    if not (needs_catalogs or needs_schemas):
+        return out
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return out
+    if needs_catalogs:
+        resp = make_api_call(method="GET", path="/api/2.1/unity-catalog/catalogs",
+                             token=token, host=host, timeout=15)
+        if resp["success"] and isinstance(resp["data"], dict):
+            names = sorted({c.get("name") for c in resp["data"].get("catalogs", []) or [] if isinstance(c, dict) and c.get("name")})
+            out["catalog_name"] = [{"label": n, "value": n} for n in names]
+    if needs_schemas:
+        cat = prefill.get("catalog_name")
+        if cat:
+            resp = make_api_call(method="GET", path="/api/2.1/unity-catalog/schemas",
+                                 token=token, host=host,
+                                 query_params={"catalog_name": cat}, timeout=15)
+            if resp["success"] and isinstance(resp["data"], dict):
+                names = sorted({s.get("name") for s in resp["data"].get("schemas", []) or [] if isinstance(s, dict) and s.get("name")})
+                out["schema_name"] = [{"label": n, "value": n} for n in names]
+    return out
+
+
+@app.callback(
+    Output({"type": "param-input", "name": "schema_name"}, "options"),
+    Output({"type": "param-input", "name": "schema_name"}, "value"),
+    Input({"type": "param-input", "name": "catalog_name"}, "value"),
+    State("selected-endpoint", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def populate_uc_schemas(catalog_name, endpoint, conn_config):
+    """When the catalog dropdown changes, fetch schemas for the schema dropdown."""
+    if not _has_widget(endpoint, "uc-schema"):
+        return no_update, no_update
+    if not catalog_name:
+        return [], None
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return [{"label": "(no workspace connection)", "value": ""}], None
+    resp = make_api_call(method="GET", path="/api/2.1/unity-catalog/schemas",
+                         token=token, host=host,
+                         query_params={"catalog_name": catalog_name}, timeout=15)
+    if not resp["success"] or not isinstance(resp["data"], dict):
+        return [{"label": "(failed to load schemas)", "value": ""}], None
+    schemas = resp["data"].get("schemas", []) or []
+    names = sorted({s.get("name") for s in schemas if isinstance(s, dict) and s.get("name")})
+    return ([{"label": n, "value": n} for n in names] or [{"label": "(no schemas)", "value": ""}]), None
 
 
 # 10. Execute API call
@@ -4191,11 +4301,62 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
     except (ValueError, TypeError):
         ep_timeout = endpoint.get("timeout", 30)
     resp_format = endpoint.get("response_format")
-    result = make_api_call(
-        method=method, path=path, token=token, host=host,
-        query_params=params if method == "GET" else None, body=body,
-        timeout=ep_timeout,
-    )
+
+    # Special case: list Vector Search indexes across ALL endpoints when
+    # endpoint_name is omitted. First list endpoints, then aggregate indexes.
+    if endpoint.get("id") == "mcp-vs-list-indexes" and not params.get("endpoint_name"):
+        ep_list = make_api_call(
+            method="GET", path="/api/2.0/vector-search/endpoints",
+            token=token, host=host, timeout=ep_timeout,
+        )
+        if not ep_list["success"]:
+            result = ep_list
+        else:
+            endpoints_data = ep_list["data"] if isinstance(ep_list["data"], dict) else {}
+            vs_endpoints = endpoints_data.get("endpoints", []) or []
+            aggregated: List[Dict[str, Any]] = []
+            errors: List[str] = []
+            total_ms = ep_list.get("elapsed_ms", 0) or 0
+            for vs_ep in vs_endpoints:
+                vs_ep_name = vs_ep.get("name") if isinstance(vs_ep, dict) else None
+                if not vs_ep_name:
+                    continue
+                idx_resp = make_api_call(
+                    method="GET", path="/api/2.0/vector-search/indexes",
+                    token=token, host=host,
+                    query_params={"endpoint_name": vs_ep_name},
+                    timeout=ep_timeout,
+                )
+                total_ms += idx_resp.get("elapsed_ms", 0) or 0
+                if idx_resp["success"] and isinstance(idx_resp["data"], dict):
+                    for idx in idx_resp["data"].get("vector_indexes", []) or []:
+                        if isinstance(idx, dict):
+                            idx.setdefault("endpoint_name", vs_ep_name)
+                            aggregated.append(idx)
+                elif not idx_resp["success"]:
+                    errors.append(f"{vs_ep_name}: {idx_resp.get('error', 'failed')}")
+            agg_payload: Dict[str, Any] = {
+                "vector_indexes": aggregated,
+                "_aggregated_from_endpoints": [
+                    vs_ep.get("name") for vs_ep in vs_endpoints if isinstance(vs_ep, dict) and vs_ep.get("name")
+                ],
+            }
+            if errors:
+                agg_payload["_errors"] = errors
+            result = {
+                "status_code": 200,
+                "elapsed_ms": int(total_ms),
+                "data": agg_payload,
+                "success": True,
+                "error": None,
+                "url": f"{host.rstrip('/')}/api/2.0/vector-search/indexes (fan-out across {len(vs_endpoints)} endpoints)",
+            }
+    else:
+        result = make_api_call(
+            method=method, path=path, token=token, host=host,
+            query_params=params if method == "GET" else None, body=body,
+            timeout=ep_timeout,
+        )
 
     # CSV responses: parse _raw text into a table instead of showing raw text
     if resp_format == "csv" and result["success"] and isinstance(result["data"], dict) and "_raw" in result["data"]:
@@ -4751,6 +4912,7 @@ def filter_endpoints(query, btn_ids):
     ws_sections = set()
     acc_sections = set()
     cmd_sections = set()
+    mcp_sections = set()
     for b in btn_ids:
         ep = ENDPOINT_MAP.get(b["id"], {})
         match = any(q in ep.get(k, "").lower() for k in ("name", "path", "category", "method"))
@@ -4770,9 +4932,14 @@ def filter_endpoints(query, btn_ids):
                 item_id = _CMD_CAT_INDEX.get(cat)
                 if item_id:
                     cmd_sections.add(item_id)
+            elif scope == "mcp":
+                item_id = _MCP_CAT_INDEX.get(cat)
+                if item_id:
+                    mcp_sections.add(item_id)
     set_props("api-accordion", {"active_item": sorted(ws_sections)})
     set_props("api-accordion-account", {"active_item": sorted(acc_sections)})
     set_props("api-accordion-commands", {"active_item": sorted(cmd_sections)})
+    set_props("api-accordion-mcp", {"active_item": sorted(mcp_sections)})
     return styles
 
 
@@ -4909,20 +5076,21 @@ def handle_iframe_link_click(link_data, conn_config, cache):
     body = None
     if method in ("POST", "PUT", "PATCH"):
         body_template = endpoint.get("body")
-        if body_template and query_params:
+        if body_template:
             try:
                 body = json.loads(body_template)
-                _apply_prefill_to_body(body, query_params)
-                # Fall back to setting unmatched flat keys on the body root.
-                for k, v in query_params.items():
-                    if "." in k or "[" in k:
-                        continue
-                    plural = k + "s"
-                    if k in body or (plural in body and isinstance(body[plural], list)):
-                        continue
-                    body[k] = v
+                if query_params:
+                    _apply_prefill_to_body(body, query_params)
+                    # Fall back to setting unmatched flat keys on the body root.
+                    for k, v in query_params.items():
+                        if "." in k or "[" in k:
+                            continue
+                        plural = k + "s"
+                        if k in body or (plural in body and isinstance(body[plural], list)):
+                            continue
+                        body[k] = v
             except (json.JSONDecodeError, TypeError):
-                body = dict(query_params)
+                body = dict(query_params) if query_params else None
         elif query_params:
             body = dict(query_params)
         query_params = {}

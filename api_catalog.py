@@ -39,6 +39,7 @@ def _p(
     required: bool = False,
     type_: str = STR,
     default: str = "",
+    widget: str = "",
 ) -> Dict[str, Any]:
     """Build a parameter definition dict for an endpoint.
 
@@ -49,6 +50,9 @@ def _p(
         type_: Data type hint (``"string"``, ``"integer"``, or
             ``"boolean"``).
         default: Default value pre-filled in the input field.
+        widget: Optional widget hint (e.g. ``"uc-catalog"``,
+            ``"uc-schema"``) that triggers a dynamic dropdown in
+            :func:`app.build_param_form`.
 
     Returns:
         A parameter dict consumable by :func:`app.build_param_form`.
@@ -59,6 +63,7 @@ def _p(
         "required": required,
         "type": type_,
         "default": default,
+        "widget": widget,
     }
 
 
@@ -2589,6 +2594,9 @@ LIST_TO_GET: Dict[str, Any] = {
                                       ("trace-credentials-download", "bi-cloud-download", "Get Download Credentials", {"trace_id": "trace_id"}),
                                   ]),
     "serving-endpoints-list":     ("serving-endpoints-get",  "endpoints",      "name",          "name",          None),
+    "mcp-genie-list-spaces":      ("mcp-genie-space",        "spaces",         "space_id",      "genie_space_id","title"),
+    "mcp-vs-list-indexes":        ("mcp-vector-search",      "vector_indexes", "name",          "index_name",    "name", {"catalog": "name#0", "schema": "name#1", "index_name": "name#2"}),
+    "mcp-uc-list-functions":      ("mcp-uc-functions",       "functions",      "full_name",     "function_name", "full_name", {"catalog": "catalog_name", "schema": "schema_name", "function_name": "name"}),
     "pipelines-list":             ("pipelines-get",          "statuses",       "pipeline_id",   "pipeline_id",   "name", None, [
                                       ("pipelines-events", "bi-journal-text", "List Pipeline Events", {"pipeline_id": "pipeline_id"}),
                                       ("pipelines-list-updates", "bi-arrow-repeat", "List Pipeline Updates", {"pipeline_id": "pipeline_id"}),
@@ -2702,6 +2710,116 @@ COMMAND_API_CATALOG: Dict[str, Any] = {
                 "description": "Cancels a running command.",
                 "params": [],
                 "body": '{\n  "clusterId": "",\n  "contextId": "",\n  "commandId": ""\n}',
+            },
+        ],
+    },
+}
+
+
+# ── Managed MCP Server Catalog ────────────────────────────────────────────────
+# Databricks-hosted Model Context Protocol servers exposed under
+# /api/2.0/mcp/*. Each entry is a Streamable HTTP MCP endpoint; the default
+# body sends a JSON-RPC tools/list call so users can discover what each
+# server exposes. See:
+# https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp
+MCP_API_CATALOG: Dict[str, Any] = {
+    "Managed MCP": {
+        "icon": "bi-plug",
+        "color": "#d946ef",
+        "endpoints": [
+            {
+                "id": "mcp-genie-list-spaces",
+                "name": "List Genie Spaces",
+                "method": "GET",
+                "path": "/api/2.0/genie/spaces",
+                "description": "Workspace REST API that lists Genie spaces. Use the space_id from each row to populate the Genie Space MCP endpoint.",
+                "params": [
+                    _p("page_size", "Maximum number of spaces to return (max 1000).", type_=INT),
+                    _p("page_token", "Pagination token from a prior response."),
+                ],
+                "body": None,
+            },
+            {
+                "id": "mcp-vs-list-indexes",
+                "name": "List Vector Search Indexes",
+                "method": "GET",
+                "path": "/api/2.0/vector-search/indexes",
+                "description": "Lists Vector Search indexes. Leave endpoint_name blank to fan out across ALL Vector Search endpoints in this workspace (the explorer first calls /api/2.0/vector-search/endpoints, then aggregates indexes from each). Click any index name to populate the Vector Search MCP endpoint with catalog, schema, and index_name pre-filled.",
+                "params": [
+                    _p("endpoint_name", "Name of the Vector Search endpoint to list indexes for. Leave blank to list indexes across ALL endpoints."),
+                    _p("page_token", "Pagination token from a prior response (single-endpoint mode only)."),
+                ],
+                "body": None,
+            },
+            {
+                "id": "mcp-uc-list-functions",
+                "name": "List Unity Catalog Functions",
+                "method": "GET",
+                "path": "/api/2.1/unity-catalog/functions",
+                "description": "Workspace REST API that lists Unity Catalog functions in a schema. Pick the catalog and schema from the dropdowns (populated from Unity Catalog), then Execute. Click any function name to populate the UC Functions MCP endpoint with catalog, schema, and function_name pre-filled.",
+                "params": [
+                    _p("catalog_name", "Name of the parent catalog.", required=True, widget="uc-catalog"),
+                    _p("schema_name", "Name of the parent schema.", required=True, widget="uc-schema"),
+                    _p("max_results", "Maximum number of functions to return.", type_=INT),
+                    _p("page_token", "Pagination token from a prior response."),
+                ],
+                "body": None,
+            },
+            {
+                "id": "mcp-genie",
+                "name": "Genie (Beta)",
+                "method": "POST",
+                "path": "/api/2.0/mcp/genie",
+                "description": "Managed MCP server for natural-language questions across all Genie Spaces and Unity Catalog data. Operates asynchronously — clients poll via genie_poll_response. The default body issues an MCP tools/list call; replace with tools/call payloads to invoke individual tools. OAuth scope: genie.",
+                "params": [],
+                "body": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "tools/list"\n}',
+            },
+            {
+                "id": "mcp-genie-space",
+                "name": "Genie Space",
+                "method": "POST",
+                "path": "/api/2.0/mcp/genie/{genie_space_id}",
+                "description": "Managed MCP server scoped to a single Genie Space. Read-only; long-running queries require result polling. OAuth scope: genie.",
+                "params": [_p("genie_space_id", "The Genie Space ID to scope the MCP server to.", required=True)],
+                "body": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "tools/list"\n}',
+                "path_params": ["genie_space_id"],
+            },
+            {
+                "id": "mcp-vector-search",
+                "name": "Vector Search",
+                "method": "POST",
+                "path": "/api/2.0/mcp/vector-search/{catalog}/{schema}/{index_name}",
+                "description": "Managed MCP server for querying a Vector Search index. The index must use Databricks-managed embeddings. OAuth scope: vector-search.",
+                "params": [
+                    _p("catalog", "Unity Catalog catalog containing the index.", required=True),
+                    _p("schema", "Schema containing the index.", required=True),
+                    _p("index_name", "Name of the Vector Search index.", required=True),
+                ],
+                "body": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "tools/list"\n}',
+                "path_params": ["catalog", "schema", "index_name"],
+            },
+            {
+                "id": "mcp-sql",
+                "name": "Databricks SQL",
+                "method": "POST",
+                "path": "/api/2.0/mcp/sql",
+                "description": "Managed MCP server that runs AI-generated SQL for data-pipeline authoring with AI coding tools. Supports read and write operations. OAuth scope: sql.",
+                "params": [],
+                "body": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "tools/list"\n}',
+            },
+            {
+                "id": "mcp-uc-functions",
+                "name": "Unity Catalog Functions",
+                "method": "POST",
+                "path": "/api/2.0/mcp/functions/{catalog}/{schema}/{function_name}",
+                "description": "Managed MCP server that exposes a Unity Catalog function as an MCP tool, letting clients invoke pre-defined SQL queries. OAuth scope: unity-catalog.",
+                "params": [
+                    _p("catalog", "Unity Catalog catalog containing the function.", required=True),
+                    _p("schema", "Schema containing the function.", required=True),
+                    _p("function_name", "Name of the Unity Catalog function.", required=True),
+                ],
+                "body": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "tools/list"\n}',
+                "path_params": ["catalog", "schema", "function_name"],
             },
         ],
     },
@@ -3332,6 +3450,15 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         extras = {}
         if extra_params:
             for target_param, source_field in extra_params.items():
+                # "field#N" suffix: split the resolved value on '.' and take segment N
+                dot_idx = None
+                if "#" in source_field:
+                    base, idx_part = source_field.rsplit("#", 1)
+                    try:
+                        dot_idx = int(idx_part)
+                        source_field = base
+                    except ValueError:
+                        pass
                 sf_grandparent = source_field.startswith("@@")
                 sf_strip = source_field.startswith("@") and not sf_grandparent
                 sf_key = source_field[2:] if sf_grandparent else (source_field[1:] if sf_strip else source_field)
@@ -3343,6 +3470,10 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
                         v = "/".join(parts[:-2]).rsplit("/", 1)[-1] if len(parts) > 2 else v
                     elif sf_strip and "/" in v:
                         v = v.rsplit("/", 1)[-1]
+                    if dot_idx is not None and "." in v:
+                        segs = v.split(".")
+                        if -len(segs) <= dot_idx < len(segs):
+                            v = segs[dot_idx]
                     extras[target_param] = v
         actions = []
         if actions_def:
@@ -3406,7 +3537,7 @@ def get_endpoint_by_id(endpoint_id: str) -> Optional[Dict[str, Any]]:
         ``category_color``, and ``scope`` (``"workspace"`` or
         ``"account"``) keys, or ``None`` if not found.
     """
-    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands")):
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands"), (MCP_API_CATALOG, "mcp")):
         for category_name, category in catalog.items():
             for endpoint in category["endpoints"]:
                 if endpoint["id"] == endpoint_id:
@@ -3430,7 +3561,7 @@ def build_endpoint_map() -> Dict[str, Dict[str, Any]]:
         A ``{endpoint_id: endpoint_dict}`` mapping.
     """
     result: Dict[str, Dict[str, Any]] = {}
-    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands")):
+    for catalog, scope in ((API_CATALOG, "workspace"), (ACCOUNT_API_CATALOG, "account"), (COMMAND_API_CATALOG, "commands"), (MCP_API_CATALOG, "mcp")):
         for cat_name, cat in catalog.items():
             for endpoint in cat["endpoints"]:
                 result[endpoint["id"]] = {
@@ -3450,6 +3581,8 @@ TOTAL_ACCOUNT_ENDPOINTS: int = sum(len(c["endpoints"]) for c in ACCOUNT_API_CATA
 TOTAL_ACCOUNT_CATEGORIES: int = len(ACCOUNT_API_CATALOG)
 TOTAL_COMMAND_ENDPOINTS: int = sum(len(c["endpoints"]) for c in COMMAND_API_CATALOG.values())
 TOTAL_COMMAND_CATEGORIES: int = len(COMMAND_API_CATALOG)
+TOTAL_MCP_ENDPOINTS: int = sum(len(c["endpoints"]) for c in MCP_API_CATALOG.values())
+TOTAL_MCP_CATEGORIES: int = len(MCP_API_CATALOG)
 
 
 # ── API Documentation URL map ────────────────────────────────────────────────
