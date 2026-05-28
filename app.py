@@ -2628,7 +2628,7 @@ _RESPONSE_EMPTY = html.Div([
 app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dcc.Store(id="selected-endpoint"),
-    dcc.Store(id="conn-config", data=_DEFAULT_CONN),
+    dcc.Store(id="conn-config", data=_DEFAULT_CONN, storage_type="local"),
     dcc.Store(id="last-request", data=None),
     dcc.Store(id="page-trigger", data={}),          # written only by start_pagination
     dcc.Store(id="page-state", data={"running": False}),  # written only by tick_fetch (primary)
