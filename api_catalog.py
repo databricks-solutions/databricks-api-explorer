@@ -2995,6 +2995,8 @@ LIST_TO_GET: Dict[str, Any] = {
                                       ("apps-list-deployments", "bi-list-ul", "List Deployments", {"name": "name"}),
                                       ("apps-get-update", "bi-arrow-repeat", "Get App Update", {"name": "name"}),
                                       ("apps-get-logs", "bi-journal-text", "Get App Logs", {"name": "name"}),
+                                      ("apps-permission-levels", "bi-shield", "Get Permission Levels", {"app_name": "name"}),
+                                      ("apps-permissions-get", "bi-shield-check", "Get Permissions", {"app_name": "name"}),
                                   ]),
     "mcp-genie-list-spaces":      ("mcp-genie-space",        "spaces",         "space_id",      "genie_space_id","title"),
     "mcp-vs-list-indexes":        ("mcp-vector-search",      "vector_indexes", "name",          "index_name",    "name", {"catalog": "name#0", "schema": "name#1", "index_name": "name#2"}),
