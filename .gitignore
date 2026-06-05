@@ -12,6 +12,31 @@ build/
 .vibe-demo.yaml
 git_email_change.sh
 terraform.tfstate*
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# IDE / agent tooling (personal)
+.cursor/
+.vscode/
+.claude/
+.agents/
+skills-lock.json
+
+# Local dev / debug artifacts
+_snapshot.txt
+lakebase_api_url.sh
+
+# Generated README exports
 README.html
 README.jpeg
 README.png
+README.pdf
+
+# Ad-hoc screenshots (README uses the *large* asset variant)
+assets/DatabricksAPIexplorer Screenshot 0.3.816.png
+resources/Screenshot*.png
