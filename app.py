@@ -454,6 +454,7 @@ _ENDPOINT_COLLAPSE_DEPTH: Dict[str, int] = {
     "pg-projects-list": 5,
     "pg-projects-get": 5,
     "pg-endpoints-list": 5,
+    "mcp-genie-space": 7,
 }
 
 
