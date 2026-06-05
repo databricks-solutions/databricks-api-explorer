@@ -120,6 +120,9 @@ body {
   flex-direction: column;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
+  transition: width 0.18s ease, min-width 0.18s ease;
+  position: relative;
+  z-index: 20;
 }
 /* When the SQL catalog browser is active, prevent sidebar scroll — lists scroll individually */
 .sidebar.sql-active,
@@ -130,11 +133,119 @@ body {
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-/* ── Scope switcher (Workspace / Account / SQL) ──────────────────────────── */
+/* ── Sidebar rail (icon-only, expand on hover) ─────────────────────── */
+
+.sidebar-rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.sidebar-rail-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-hi);
+  border-color: var(--text-3);
+}
+.sidebar-rail-toggle.active {
+  color: var(--cyan);
+  border-color: rgba(0,212,255,0.35);
+  background: var(--bg-active);
+}
+
+.sidebar.sidebar-rail {
+  width: 52px;
+  min-width: 52px;
+}
+.sidebar.sidebar-rail:hover {
+  width: 268px;
+  min-width: 268px;
+}
+
+/* Scope row: dropdown + collapse toggle */
 .scope-switcher {
-  padding: 10px 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 0;
   flex-shrink: 0;
 }
+.scope-dropdown-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Expanded: dropdown left, toggle right */
+.sidebar:not(.sidebar-rail) .scope-dropdown-wrap { order: 1; }
+.sidebar:not(.sidebar-rail) .sidebar-rail-toggle { order: 2; }
+
+/* Rail: toggle anchored left (same x across hover expand) */
+.sidebar.sidebar-rail .scope-switcher {
+  justify-content: flex-start;
+  padding: 8px 8px 0 12px;
+}
+.sidebar.sidebar-rail .sidebar-rail-toggle { order: 0; }
+.sidebar.sidebar-rail .scope-dropdown-wrap { order: 1; }
+.sidebar.sidebar-rail:not(:hover) .scope-dropdown-wrap {
+  display: none;
+}
+
+/* Collapsed rail: icon-only category headers, hide endpoint lists & text */
+.sidebar.sidebar-rail:not(:hover) .search-wrapper,
+.sidebar.sidebar-rail:not(:hover) .accordion-body,
+.sidebar.sidebar-rail:not(:hover) .ep-name,
+.sidebar.sidebar-rail:not(:hover) .ep-method,
+.sidebar.sidebar-rail:not(:hover) .ep-doc-link,
+.sidebar.sidebar-rail:not(:hover) .ep-legacy,
+.sidebar.sidebar-rail:not(:hover) .endpoint-count,
+.sidebar.sidebar-rail:not(:hover) .cat-name,
+.sidebar.sidebar-rail:not(:hover) .cat-doc-link,
+.sidebar.sidebar-rail:not(:hover) .cat-legacy,
+.sidebar.sidebar-rail:not(:hover) .sql-browser-label,
+.sidebar.sidebar-rail:not(:hover) .sql-browser-item-name,
+.sidebar.sidebar-rail:not(:hover) .sql-browser-describe-btn {
+  display: none !important;
+}
+
+/* Category headers: icon only in collapsed rail */
+.sidebar.sidebar-rail:not(:hover) .accordion-button {
+  padding: 8px 0 !important;
+  justify-content: center;
+}
+.sidebar.sidebar-rail:not(:hover) .cat-header {
+  justify-content: center !important;
+  width: 100%;
+}
+.sidebar.sidebar-rail:not(:hover) .cat-header .ep-cat-icon {
+  margin-right: 0 !important;
+  font-size: 15px;
+}
+
+/* Hover-expand rail: full sidebar with icon + method + name on each endpoint */
+.sidebar.sidebar-rail:hover .ep-icon {
+  display: inline-block;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* SQL / Lakebase browser items: icon only */
+.sidebar.sidebar-rail:not(:hover) .sql-browser-item {
+  justify-content: center;
+  padding: 6px 4px;
+}
+.sidebar.sidebar-rail:not(:hover) .sql-browser-item .bi {
+  margin-right: 0 !important;
+}
+
+/* ── Scope switcher (Workspace / Account / SQL) ──────────────────────────── */
 
 /* ── Shared dark-theme dropdown styles (scope, lakebase method) ── */
 .scope-dropdown.dash-dropdown,
@@ -311,6 +422,11 @@ body {
 .ep-patch  { background: rgba(16,185,129,0.15); color: var(--green); }
 
 .ep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+
+.ep-icon { display: none; flex-shrink: 0; }
+
+/* Pinned-open sidebar (not rail): method + name, no duplicate icons */
+.sidebar:not(.sidebar-rail) .ep-icon { display: none !important; }
 
 .ep-legacy {
   font-family: var(--font-mono);

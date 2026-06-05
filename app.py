@@ -1226,6 +1226,7 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
         btns = []
         for ep in cat["endpoints"]:
             children = [
+                html.I(className=f"bi {cat['icon']} ep-icon", style={"color": cat["color"]}),
                 html.Span(ep["method"], className=f"ep-method ep-{ep['method'].lower()}"),
                 html.Span(ep["name"], className="ep-name"),
             ]
@@ -1243,12 +1244,12 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
                 id={"type": "endpoint-btn", "id": ep["id"]},
                 n_clicks=0,
                 className="endpoint-btn",
-                title=ep.get("description", ""),
+                title=ep["name"],
             ))
         cat_doc_url = get_category_doc_url(cat_name, cloud)
         title_children = [
-            html.I(className=f"bi {cat['icon']} me-2", style={"color": cat["color"]}),
-            cat_name,
+            html.I(className=f"bi {cat['icon']} me-2 ep-cat-icon", style={"color": cat["color"]}),
+            html.Span(cat_name, className="cat-name"),
         ]
         if cat.get("legacy"):
             title_children.append(html.Span("LEGACY", className="ep-legacy cat-legacy", title="Legacy API category — see description for the modern replacement"))
@@ -1275,23 +1276,32 @@ def build_sidebar() -> html.Div:
         A Dash ``html.Div`` containing the sidebar layout.
     """
     scope_switcher = html.Div([
-        dcc.Dropdown(
-            id="scope-dropdown",
-            options=[
-                {"label": html.Span([html.I(className="bi bi-pc-display me-2"), "Workspace APIs"]), "value": "workspace"},
-                {"label": html.Span([html.I(className="bi bi-globe me-2"), "Account APIs"]), "value": "account"},
-                {"label": html.Span([html.I(className="bi bi-database me-2"), "SQL Execution"]), "value": "sql"},
-                {"label": html.Span([html.I(className="bi bi-terminal me-2"), "Command Execution"]), "value": "commands"},
-                {"label": html.Span([html.I(className="bi bi-plug me-2"), "MCP ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "mcp"},
-                {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
-            ],
-            value="workspace",
-            clearable=False,
-            searchable=False,
-            className="scope-dropdown",
-            persistence=True,
-            persistence_type="session",
+        html.Button(
+            html.I(className="bi bi-chevron-left", id="sidebar-rail-toggle-icon"),
+            id="sidebar-rail-toggle",
+            n_clicks=0,
+            className="sidebar-rail-toggle",
+            title="Collapse sidebar to icons",
         ),
+        html.Div([
+            dcc.Dropdown(
+                id="scope-dropdown",
+                options=[
+                    {"label": html.Span([html.I(className="bi bi-pc-display me-2"), "Workspace APIs"]), "value": "workspace"},
+                    {"label": html.Span([html.I(className="bi bi-globe me-2"), "Account APIs"]), "value": "account"},
+                    {"label": html.Span([html.I(className="bi bi-database me-2"), "SQL Execution"]), "value": "sql"},
+                    {"label": html.Span([html.I(className="bi bi-terminal me-2"), "Command Execution"]), "value": "commands"},
+                    {"label": html.Span([html.I(className="bi bi-plug me-2"), "MCP ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "mcp"},
+                    {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
+                ],
+                value="workspace",
+                clearable=False,
+                searchable=False,
+                className="scope-dropdown",
+                persistence=True,
+                persistence_type="session",
+            ),
+        ], className="scope-dropdown-wrap"),
     ], className="scope-switcher")
 
     return html.Div([

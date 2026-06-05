@@ -215,3 +215,73 @@
     if (panel) panel.classList.toggle('hidden');
   });
 })();
+
+/* ── Sidebar rail toggle (icon-only, expand on hover) ─────────────────── */
+(function () {
+  'use strict';
+
+  var LS_KEY = 'sidebar-rail';
+
+  function getSidebar() {
+    return document.getElementById('sidebar');
+  }
+
+  function getToggle() {
+    return document.getElementById('sidebar-rail-toggle');
+  }
+
+  function getToggleIcon() {
+    return document.getElementById('sidebar-rail-toggle-icon');
+  }
+
+  function setRail(on) {
+    var sidebar = getSidebar();
+    var btn = getToggle();
+    var icon = getToggleIcon();
+    if (!sidebar || !btn) return;
+
+    sidebar.classList.toggle('sidebar-rail', on);
+    btn.classList.toggle('active', on);
+    btn.title = on ? 'Pin sidebar open' : 'Collapse sidebar to icons';
+
+    if (icon) {
+      icon.className = on ? 'bi bi-chevron-right' : 'bi bi-chevron-left';
+    }
+
+    try {
+      localStorage.setItem(LS_KEY, on ? '1' : '0');
+    } catch (e) { /* ignore */ }
+  }
+
+  function bindToggle() {
+    var btn = getToggle();
+    if (!btn || btn.dataset.railBound) return;
+    btn.dataset.railBound = '1';
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var sidebar = getSidebar();
+      if (!sidebar) return;
+      setRail(!sidebar.classList.contains('sidebar-rail'));
+    });
+  }
+
+  function initRail() {
+    bindToggle();
+    try {
+      if (localStorage.getItem(LS_KEY) === '1') {
+        setRail(true);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initRail);
+  } else {
+    initRail();
+  }
+
+  new MutationObserver(function () {
+    bindToggle();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
