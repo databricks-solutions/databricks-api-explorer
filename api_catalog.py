@@ -2922,6 +2922,12 @@ API_CATALOG["Model Registry"]["legacy"] = True
 for _ep in API_CATALOG["Model Registry"]["endpoints"]:
     _ep["legacy"] = True
 
+# DBFS REST APIs are legacy — DBFS root/mounts are deprecated; use the Files API
+# (/api/2.0/fs/*) with Unity Catalog volumes for new file workloads.
+API_CATALOG["DBFS"]["legacy"] = True
+for _ep in API_CATALOG["DBFS"]["endpoints"]:
+    _ep["legacy"] = True
+
 
 # ── List → Get link map ────────────────────────────────────────────────────────
 # Format: list_endpoint_id → (get_endpoint_id, list_key, id_field, param_name, label_field[, extra_params[, actions]])

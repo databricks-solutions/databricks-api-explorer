@@ -97,6 +97,69 @@ def get_cli_profiles() -> List[str]:
 # Default to the first profile found in ~/.databrickscfg
 DATABRICKS_PROFILE: str = get_cli_profiles()[0]
 
+# Keep SDK network calls short — default retry_timeout_seconds is 300s and blocks the UI.
+_SDK_HTTP_TIMEOUT = 10
+
+
+def _read_profile_section(profile: str) -> Dict[str, str]:
+    """Read key/value pairs for one profile from ``~/.databrickscfg``."""
+    path = os.path.expanduser("~/.databrickscfg")
+    if not os.path.exists(path):
+        return {}
+    section: Optional[str] = None
+    result: Dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    section = stripped[1:-1].strip()
+                    continue
+                if section != profile or "=" not in stripped or stripped.startswith("#"):
+                    continue
+                key, _, value = stripped.partition("=")
+                result[key.strip()] = value.strip()
+    except Exception:
+        pass
+    return result
+
+
+def sdk_config(profile: Optional[str] = None, **extra: Any) -> Any:
+    """Build a :class:`~databricks.sdk.core.Config` with short timeouts.
+
+    Passes host/account_id/workspace_id from the profile file when
+    available so the SDK skips slow host-metadata auto-discovery.
+    """
+    from databricks.sdk.core import Config  # noqa: PLC0415
+
+    prof = profile or DATABRICKS_PROFILE
+    section = _read_profile_section(prof)
+    kwargs: Dict[str, Any] = {
+        "profile": prof,
+        "http_timeout_seconds": _SDK_HTTP_TIMEOUT,
+        "retry_timeout_seconds": _SDK_HTTP_TIMEOUT,
+    }
+    if section.get("host"):
+        kwargs["host"] = section["host"]
+    if section.get("account_id"):
+        kwargs["account_id"] = section["account_id"]
+    if section.get("workspace_id"):
+        kwargs["workspace_id"] = section["workspace_id"]
+    kwargs.update(extra)
+    return Config(**kwargs)
+
+
+def normalize_conn_config(conn_config: Optional[Dict]) -> Dict:
+    """Return a valid connection config, fixing stale profile names."""
+    if not conn_config:
+        return {"mode": "profile", "profile": DATABRICKS_PROFILE}
+    conn = dict(conn_config)
+    if conn.get("mode") == "profile":
+        prof = conn.get("profile") or DATABRICKS_PROFILE
+        if prof not in get_cli_profiles():
+            conn["profile"] = DATABRICKS_PROFILE
+    return conn
+
 
 # ── Connection resolution ──────────────────────────────────────────────────────
 
@@ -111,9 +174,11 @@ def get_account_id(profile: Optional[str] = None) -> Optional[str]:
         The account ID string, or ``None`` if not configured or on
         error.
     """
+    section = _read_profile_section(profile or DATABRICKS_PROFILE)
+    if section.get("account_id"):
+        return section["account_id"]
     try:
-        from databricks.sdk.core import Config  # noqa: PLC0415
-        cfg = Config(profile=profile or DATABRICKS_PROFILE)
+        cfg = sdk_config(profile=profile)
         return getattr(cfg, "account_id", None) or None
     except Exception:
         return None
@@ -132,10 +197,9 @@ def _find_account_profile(account_id: str) -> Optional[str]:
         The profile name, or ``None`` if no account-level profile
         exists.
     """
-    from databricks.sdk.core import Config  # noqa: PLC0415
     for profile in get_cli_profiles():
         try:
-            cfg = Config(profile=profile)
+            cfg = sdk_config(profile=profile)
             h = (cfg.host or "").lower()
             if "accounts." in h and getattr(cfg, "account_id", None) == account_id:
                 return profile
@@ -179,10 +243,8 @@ def resolve_account_connection(
     # Profile mode — find a profile that targets the accounts console
     profile = conn_config.get("profile") or DATABRICKS_PROFILE
     try:
-        from databricks.sdk.core import Config  # noqa: PLC0415
-
         # Check if the active profile itself already points to accounts.*
-        cfg = Config(profile=profile)
+        cfg = sdk_config(profile=profile)
         h = (cfg.host or "").lower()
         if "accounts." in h and getattr(cfg, "account_id", None):
             auth_val = cfg.authenticate().get("Authorization", "")
@@ -198,7 +260,7 @@ def resolve_account_connection(
         if not acct_profile:
             return accounts_host, None
 
-        acct_cfg = Config(profile=acct_profile)
+        acct_cfg = sdk_config(profile=acct_profile)
         auth_val = acct_cfg.authenticate().get("Authorization", "")
         token = auth_val[7:] if auth_val.startswith("Bearer ") else None
         return (acct_cfg.host or accounts_host).rstrip("/"), token
@@ -247,8 +309,7 @@ def resolve_local_connection(
     # Profile mode
     profile = conn_config.get("profile") or DATABRICKS_PROFILE
     try:
-        from databricks.sdk.core import Config  # noqa: PLC0415
-        cfg = Config(profile=profile)
+        cfg = sdk_config(profile=profile)
         host = (cfg.host or "").rstrip("/")
         auth_val = cfg.authenticate().get("Authorization", "")
         token = auth_val[7:] if auth_val.startswith("Bearer ") else None
@@ -271,8 +332,7 @@ def _get_local_config():
         A :class:`~databricks.sdk.core.Config` instance for
         :data:`DATABRICKS_PROFILE`.
     """
-    from databricks.sdk.core import Config  # noqa: PLC0415
-    return Config(profile=DATABRICKS_PROFILE)
+    return sdk_config(profile=DATABRICKS_PROFILE)
 
 
 def get_host() -> str:

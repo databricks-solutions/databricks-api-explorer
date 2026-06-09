@@ -55,7 +55,6 @@ from api_catalog import (
 from auth import (
     DATABRICKS_PROFILE,
     IS_DATABRICKS_APP,
-    _get_local_config,
     get_account_id,
     get_cli_profiles,
     get_current_user_info,
@@ -64,16 +63,22 @@ from auth import (
     get_sp_token,
     get_workspace_name,
     make_api_call,
+    normalize_conn_config,
     resolve_account_connection,
     resolve_local_connection,
+    sdk_config,
 )
 from version import VERSION
 
 # Category name → accordion item-id, used by search to expand matching sections
-_WS_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(API_CATALOG)}
-_ACC_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(ACCOUNT_API_CATALOG)}
-_CMD_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(COMMAND_API_CATALOG)}
-_MCP_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(MCP_API_CATALOG)}
+def _sorted_cat_keys(catalog: Dict[str, Any]) -> List[str]:
+    return sorted(catalog)
+
+
+_WS_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(_sorted_cat_keys(API_CATALOG))}
+_ACC_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(_sorted_cat_keys(ACCOUNT_API_CATALOG))}
+_CMD_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(_sorted_cat_keys(COMMAND_API_CATALOG))}
+_MCP_CAT_INDEX = {name: f"item-{i}" for i, name in enumerate(_sorted_cat_keys(MCP_API_CATALOG))}
 
 # ── Dash init ─────────────────────────────────────────────────────────────────
 app = dash.Dash(
@@ -779,7 +784,7 @@ def _resolve_conn(
             return get_host(), flask_request.headers.get("X-Forwarded-Access-Token")
         # Default: Service Principal
         return get_host(), get_sp_token()
-    return resolve_local_connection(conn_config or _DEFAULT_CONN)
+    return resolve_local_connection(normalize_conn_config(conn_config or _DEFAULT_CONN))
 
 
 def _resolve_conn_obo(conn_config: Optional[Dict]) -> tuple:
@@ -791,7 +796,7 @@ def _resolve_conn_obo(conn_config: Optional[Dict]) -> tuple:
     """
     if IS_DATABRICKS_APP:
         return get_host(), flask_request.headers.get("X-Forwarded-Access-Token")
-    return resolve_local_connection(conn_config or _DEFAULT_CONN)
+    return resolve_local_connection(normalize_conn_config(conn_config or _DEFAULT_CONN))
 
 
 def _accounts_host(workspace_host: str) -> str:
@@ -1223,7 +1228,8 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
         A list of :class:`dbc.AccordionItem` components.
     """
     items = []
-    for cat_name, cat in catalog.items():
+    for cat_name in _sorted_cat_keys(catalog):
+        cat = catalog[cat_name]
         btns = []
         for ep in cat["endpoints"]:
             children = [
@@ -1261,7 +1267,11 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
                 href=cat_doc_url, target="_blank", rel="noopener noreferrer",
                 className="cat-doc-link", title=f"{cat_name} API docs",
             ))
-        title_el = html.Span(title_children, className="cat-header d-flex align-items-center w-100")
+        title_el = html.Span(
+            title_children,
+            className="cat-header d-flex align-items-center w-100",
+            **{"data-category": cat_name},
+        )
         items.append(dbc.AccordionItem(html.Div(btns, className="endpoint-list"), title=title_el))
     return items
 
@@ -3241,6 +3251,7 @@ app.clientside_callback(
 )
 def init_on_load(_, conn_config):
     """Callback 1: Populate topbar user chip, host label, workspace name, and metastore."""
+    conn_config = normalize_conn_config(conn_config)
     host, token = _resolve_conn(conn_config)
     cloud = detect_cloud(host) if host else None
     host_label = html.A(
@@ -3499,21 +3510,23 @@ app.clientside_callback(
     function(btnClicks, overlayClicks, isOpen) {
         // Both inputs trigger a close or toggle
         var triggered = dash_clientside.callback_context.triggered;
-        if (!triggered || !triggered.length) return [dash_clientside.no_update, dash_clientside.no_update, dash_clientside.no_update];
+        if (!triggered || !triggered.length) return [dash_clientside.no_update, dash_clientside.no_update, dash_clientside.no_update, dash_clientside.no_update];
         var tid = triggered[0].prop_id;
         if (tid === "dropdown-overlay.n_clicks") {
             // Overlay click → always close
-            return [false, {display: "none"}, {display: "none"}];
+            return [false, {display: "none"}, {display: "none"}, "user-dropdown"];
         }
         // user-btn click → toggle
         var newOpen = !isOpen;
         var style = newOpen ? {display: "block"} : {display: "none"};
-        return [newOpen, style, style];
+        var cls = newOpen ? "user-dropdown is-open" : "user-dropdown";
+        return [newOpen, style, style, cls];
     }
     """,
     Output("dropdown-open", "data"),
     Output("user-dropdown", "style"),
     Output("dropdown-overlay", "style"),
+    Output("user-dropdown", "className"),
     Input("user-btn", "n_clicks"),
     Input("dropdown-overlay", "n_clicks"),
     State("dropdown-open", "data"),
@@ -3541,15 +3554,13 @@ def populate_dropdown(is_open, conn_config):
     if not is_open:
         return [no_update] * 9
 
-    conn_config = conn_config or _DEFAULT_CONN
+    conn_config = normalize_conn_config(conn_config or _DEFAULT_CONN)
     host, token = _resolve_conn(conn_config)
 
     # Refresh profile list from disk every time the dropdown opens
     profiles = get_cli_profiles()
     profile_options = [{"label": p, "value": p} for p in profiles]
     current_profile = conn_config.get("profile", DATABRICKS_PROFILE)
-    if current_profile not in profiles and profiles:
-        current_profile = profiles[0]
 
     scim: Dict = {}
     if token and host:
@@ -3557,7 +3568,10 @@ def populate_dropdown(is_open, conn_config):
         if r["success"]:
             scim = r["data"]
 
-    display_name = scim.get("displayName", "Unknown")
+    if not token or not host:
+        display_name = "Not connected"
+    else:
+        display_name = scim.get("displayName", "Unknown")
     username = scim.get("userName", "")
     active = scim.get("active", True)
     groups: List[Dict] = scim.get("groups", [])
@@ -3575,17 +3589,18 @@ def populate_dropdown(is_open, conn_config):
         auth_type_display = "Personal Access Token"
     else:
         try:
-            cfg = _get_local_config()
+            cfg = sdk_config(profile=current_profile)
             raw = getattr(cfg, "auth_type", None) or "unknown"
             auth_type_display = {
                 "pat": "Personal Access Token",
                 "oauth-m2m": "OAuth M2M",
                 "external-browser": "OAuth (Browser / SSO)",
+                "databricks-cli": "Databricks CLI (SSO)",
                 "azure-client-secret": "Azure Service Principal",
                 "azure-msi": "Azure Managed Identity",
             }.get(raw, raw)
         except Exception:
-            auth_type_display = "Unknown"
+            auth_type_display = "Not authenticated — run Re-auth SSO or Connect"
 
     account_id = get_account_id(conn_config.get("profile"))
     auth_details = html.Div([
@@ -3651,13 +3666,13 @@ def show_profile_hint(profile):
     if not profile:
         return ""
     try:
-        from databricks.sdk.core import Config
-        cfg = Config(profile=profile)
+        cfg = sdk_config(profile=profile)
         raw = getattr(cfg, "auth_type", None) or "?"
         label = {
             "pat": "Personal Access Token",
             "oauth-m2m": "OAuth M2M",
             "external-browser": "OAuth (Browser / SSO)",
+            "databricks-cli": "Databricks CLI (SSO)",
             "azure-client-secret": "Azure Service Principal",
             "azure-msi": "Azure Managed Identity",
         }.get(raw, raw)
@@ -3941,23 +3956,23 @@ def select_endpoint(n_clicks_list, btn_ids):
 app.clientside_callback(
     """
     function(pathname) {
-        if (window._accordionClickListenerAdded) return window.dash_clientside.no_update;
-        window._accordionClickListenerAdded = true;
+        if (window._accordionClickListenerV2) return window.dash_clientside.no_update;
+        window._accordionClickListenerV2 = true;
         document.addEventListener('click', function(e) {
+            if (e.target.closest('.cat-doc-link')) return;
             var btn = e.target.closest('.accordion-button');
             if (!btn) return;
-            /* Check both workspace and account accordions */
-            var accIds = ['api-accordion', 'api-accordion-account', 'api-accordion-commands'];
+            var catEl = btn.querySelector('.cat-header[data-category]');
+            if (!catEl) return;
+            var catName = catEl.getAttribute('data-category');
+            if (!catName) return;
+            var accIds = ['api-accordion', 'api-accordion-account', 'api-accordion-commands', 'api-accordion-mcp'];
             for (var a = 0; a < accIds.length; a++) {
                 var acc = document.getElementById(accIds[a]);
-                if (!acc || !acc.contains(btn)) continue;
-                var items = acc.querySelectorAll(':scope > .accordion-item');
-                for (var i = 0; i < items.length; i++) {
-                    if (items[i].contains(btn)) {
-                        window.dash_clientside.set_props('accordion-user-click',
-                            {data: {item: 'item-' + i, ts: Date.now()}});
-                        return;
-                    }
+                if (acc && acc.contains(btn)) {
+                    window.dash_clientside.set_props('accordion-user-click',
+                        {data: {category: catName, ts: Date.now()}});
+                    return;
                 }
             }
         });
@@ -3983,14 +3998,6 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
     """Callback 8a: Select the first endpoint when a category is opened by user click."""
     if not click_data or scope in ("sql", "lakebase"):
         return no_update
-    active_item = click_data.get("item", "")
-    if not active_item:
-        return no_update
-    # Extract the category index from "item-N"
-    try:
-        cat_idx = int(active_item.split("-")[1])
-    except (IndexError, ValueError):
-        return no_update
     if scope == "account":
         catalog = ACCOUNT_API_CATALOG
     elif scope == "commands":
@@ -3999,10 +4006,21 @@ def auto_select_on_accordion_open(click_data, scope, cloud, current_endpoint):
         catalog = MCP_API_CATALOG
     else:
         catalog = API_CATALOG
-    cat_keys = list(catalog.keys())
-    if cat_idx >= len(cat_keys):
+    cat_name = click_data.get("category")
+    if not cat_name:
+        active_item = click_data.get("item", "")
+        if not active_item:
+            return no_update
+        try:
+            cat_idx = int(active_item.split("-")[1])
+        except (IndexError, ValueError):
+            return no_update
+        cat_keys = _sorted_cat_keys(catalog)
+        if cat_idx >= len(cat_keys):
+            return no_update
+        cat_name = cat_keys[cat_idx]
+    if cat_name not in catalog:
         return no_update
-    cat_name = cat_keys[cat_idx]
     endpoints = catalog[cat_name]["endpoints"]
     if not endpoints:
         return no_update
@@ -4040,7 +4058,7 @@ def sync_active_button(endpoint, _scope, btn_ids):
         catalog = MCP_API_CATALOG
     else:
         catalog = API_CATALOG
-    cat_keys = list(catalog.keys())
+    cat_keys = _sorted_cat_keys(catalog)
     ws_item, acct_item, cmd_item, mcp_item = no_update, no_update, no_update, no_update
     if cat_name in cat_keys:
         item = f"item-{cat_keys.index(cat_name)}"

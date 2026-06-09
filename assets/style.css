@@ -1502,15 +1502,15 @@ body {
   inset: 0;
   background: var(--bg-panel);
   z-index: 2;
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 14px;
   border-radius: inherit;
 }
-.user-dropdown:has(#popup-name:not(:empty)) .user-dropdown-spinner {
-  display: none;
+.user-dropdown.is-open:not(:has(#popup-name:not(:empty))) .user-dropdown-spinner {
+  display: flex;
 }
 .user-dropdown-spinner-ring {
   width: 36px;
