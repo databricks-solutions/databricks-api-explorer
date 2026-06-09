@@ -4290,6 +4290,9 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
         else:
             params[name] = pval
 
+    if "primary_keys" in params and isinstance(params["primary_keys"], str):
+        params["primary_keys"] = [k.strip() for k in params["primary_keys"].split(",") if k.strip()]
+
     path: str = endpoint["path"]
     for pp in endpoint.get("path_params", []):
         val = params.pop(pp, "")
@@ -4333,7 +4336,7 @@ def execute_api_call(n_clicks, endpoint, param_values, param_ids, body_text, tim
 
     # Special case: list Vector Search indexes across ALL endpoints when
     # endpoint_name is omitted. First list endpoints, then aggregate indexes.
-    if endpoint.get("id") == "mcp-vs-list-indexes" and not params.get("endpoint_name"):
+    if endpoint.get("id") in ("mcp-vs-list-indexes", "vs-indexes-list") and not params.get("endpoint_name"):
         ep_list = make_api_call(
             method="GET", path="/api/2.0/vector-search/endpoints",
             token=token, host=host, timeout=ep_timeout,
