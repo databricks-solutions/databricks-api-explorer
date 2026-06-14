@@ -130,6 +130,9 @@ body {
   overflow: hidden;
 }
 
+/* Predictive Optimization reuses the SQL catalog browser but has no DESCRIBE action */
+.sidebar.predopt-active .sql-browser-describe-btn { display: none; }
+
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
@@ -450,6 +453,20 @@ body {
   margin-left: 8px;
 }
 
+.ep-prpr {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  background: rgba(239,68,68,0.15);
+  color: var(--red);
+  border: 1px solid rgba(239,68,68,0.35);
+}
+
 /* Sidebar endpoint doc link icon — always visible, subtly dim */
 .ep-doc-link {
   display: inline-flex;
@@ -693,6 +710,19 @@ body {
 }
 .execute-btn:active:not(:disabled) { transform: translateY(0); }
 .execute-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Secondary action button (e.g. Predictive Optimization "Get Status") */
+.execute-btn.predopt-status-btn {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-1) !important;
+  box-shadow: none;
+}
+.execute-btn.predopt-status-btn:hover:not(:disabled) {
+  background: var(--bg-hover) !important;
+  border-color: var(--border-hi) !important;
+  box-shadow: none;
+}
 
 /* Loading spinner */
 .execute-btn .btn-spinner {

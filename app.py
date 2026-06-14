@@ -1304,6 +1304,7 @@ def build_sidebar() -> html.Div:
                     {"label": html.Span([html.I(className="bi bi-terminal me-2"), "Command Execution"]), "value": "commands"},
                     {"label": html.Span([html.I(className="bi bi-plug me-2"), "MCP ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "mcp"},
                     {"label": html.Span([html.I(className="bi bi-database-gear me-2"), "Lakebase Data API ", html.Span("Beta", style={"fontSize": "9px", "opacity": "0.6", "fontStyle": "italic"})]), "value": "lakebase"},
+                    {"label": html.Span([html.I(className="bi bi-magic me-2"), "Predictive Optimization ", html.Span("PrPr", style={"fontSize": "9px", "fontStyle": "italic", "fontWeight": "700", "color": "#ef4444"})]), "value": "predopt"},
                 ],
                 value="workspace",
                 clearable=False,
@@ -2187,6 +2188,77 @@ def build_sql_panel(warehouses):
     ], className="endpoint-card")
 
 
+def build_predopt_panel(table_name=""):
+    """Build the Predictive Optimization "Optimize Now" panel.
+
+    Reuses the shared sidebar catalog/schema/table browser (the same one
+    used by the SQL scope) to pick a managed table, then either triggers
+    predictive optimization on it or checks the status of a prior trigger.
+
+    Args:
+        table_name: Optional fully-qualified table name to pre-fill.
+
+    Returns:
+        A Dash ``html.Div`` containing the panel layout.
+    """
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="bi bi-magic me-2", style={"color": "var(--accent)"}),
+                html.Span("Predictive Optimization — Optimize Now", className="endpoint-name"),
+                html.Span(
+                    "PrPr", className="ep-prpr ms-2",
+                    title="Private Preview — early-access API, may change or be unavailable",
+                ),
+                html.A(
+                    html.I(className="bi bi-box-arrow-up-right"),
+                    href="https://docs.databricks.com/aws/en/optimizations/predictive-optimization",
+                    target="_blank", rel="noopener noreferrer",
+                    className="endpoint-doc-link ms-2", title="Predictive Optimization docs",
+                ),
+            ], className="d-flex align-items-center"),
+        ], className="endpoint-header"),
+        html.Div("POST /api/2.0/predictive-optimization/trigger", className="endpoint-path font-mono"),
+        html.Div("GET  /api/2.0/predictive-optimization/trigger/status", className="endpoint-path font-mono"),
+        html.Div(
+            "Manually trigger predictive optimization maintenance (OPTIMIZE / VACUUM) on a Unity "
+            "Catalog managed table instead of waiting for Databricks to schedule it. Pick a table "
+            "from the catalog browser on the left — its current optimization status loads "
+            "automatically — then click Trigger Optimize Now to queue maintenance.",
+            className="endpoint-desc",
+        ),
+        html.Hr(className="divider"),
+        html.Div([
+            html.Div([
+                html.Span("table_name", className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div(
+                "Fully-qualified managed table name (catalog.schema.table). "
+                "Selecting a table in the browser fills this in and loads its status.",
+                className="param-desc",
+            ),
+            dbc.Input(
+                id="predopt-table-input", placeholder="catalog.schema.table",
+                value=table_name, className="param-input font-mono",
+            ),
+        ], className="param-row"),
+        html.Hr(className="divider"),
+        html.Div([
+            html.Button(
+                [html.I(className="bi bi-lightning-charge-fill me-2"), "Trigger Optimize Now"],
+                id="predopt-trigger-btn", n_clicks=0, className="execute-btn",
+                title="POST /api/2.0/predictive-optimization/trigger",
+            ),
+            html.Button(
+                [html.I(className="bi bi-arrow-repeat me-2"), "Refresh Status"],
+                id="predopt-status-btn", n_clicks=0, className="execute-btn predopt-status-btn",
+                title="GET /api/2.0/predictive-optimization/trigger/status",
+            ),
+        ], className="execute-row"),
+    ], className="endpoint-card")
+
+
 def build_sql_results(result):
     """Build the SQL results view — table for successful queries, error panel otherwise.
 
@@ -2678,6 +2750,8 @@ app.layout = html.Div([
     dcc.Store(id="lb-project-selected", data=None),     # selected Lakebase project name
     dcc.Store(id="lb-branch-selected", data=None),      # selected Lakebase branch name
     dcc.Store(id="lb-browser-spinner-dummy", data=None),  # dummy for Lakebase browser spinner CB
+    dcc.Store(id="predopt-trigger", data=None, storage_type="memory"),  # fires predictive-optimization API call
+    dcc.Store(id="predopt-click-dummy", data=None),     # dummy for predopt button click handler installer
     dcc.Store(id="scope-visibility-dummy", data=None),  # dummy for scope visibility toggle
     dcc.Store(id="nav-history-dummy", data=None),       # dummy output for history push clientside CB
     dcc.Store(id="settings-theme-dummy", data=None), # dummy output for theme apply clientside CB
@@ -2758,11 +2832,12 @@ app.clientside_callback(
         if (acc) acc.style.display = scope === 'account'   ? '' : 'none';
         if (cmd) cmd.style.display = scope === 'commands'  ? '' : 'none';
         if (mcp) mcp.style.display = scope === 'mcp'       ? '' : 'none';
-        if (sql) sql.style.display = scope === 'sql'       ? '' : 'none';
+        if (sql) sql.style.display = (scope === 'sql' || scope === 'predopt') ? '' : 'none';
         if (lb)  lb.style.display  = scope === 'lakebase'  ? '' : 'none';
         if (sidebar) {
-            sidebar.classList.toggle('sql-active', scope === 'sql');
+            sidebar.classList.toggle('sql-active', scope === 'sql' || scope === 'predopt');
             sidebar.classList.toggle('lakebase-active', scope === 'lakebase');
+            sidebar.classList.toggle('predopt-active', scope === 'predopt');
         }
         return scope;
     }
@@ -2779,16 +2854,54 @@ app.clientside_callback(
 @app.callback(
     Output("sql-browser-catalog-list", "children", allow_duplicate=True),
     Input("api-scope", "data"),
-    State("conn-config", "data"),
+    Input("conn-config", "data"),
     prevent_initial_call=True,
 )
 def fetch_sql_catalogs(scope, conn_config):
-    """Callback 0b2: Populate the catalog list after SQL scope is activated."""
-    if scope != "sql":
+    """Callback 0b2: (Re)populate the catalog list when the SQL / Predictive
+    Optimization scope is activated *or* the connection changes (profile
+    switch / new workspace), so the selector never shows stale catalogs."""
+    if scope not in ("sql", "predopt"):
         return no_update
     rows = _sql_query_simple(conn_config, "SHOW CATALOGS")
     catalogs = sorted(r[0] for r in rows if r)
     return _browser_list_items(catalogs, "cat")
+
+
+# 0b3. When the connection changes, reset the rest of the shared catalog/schema/
+#      table selector — the schema and table lists, the derived form inputs, and
+#      the selection stores — so a profile switch never leaves another
+#      workspace's metadata behind. (Catalogs themselves are refetched by 0b2.)
+app.clientside_callback(
+    """
+    function(conn) {
+        var emptyChild = [{props: {children: '\\u2014', className: 'sql-browser-empty'},
+                           type: 'Div', namespace: 'dash_html_components'}];
+        var resetList = function(id) {
+            if (document.getElementById(id)) {
+                window.dash_clientside.set_props(id, {children: emptyChild});
+            }
+        };
+        var clearValue = function(id) {
+            if (document.getElementById(id)) {
+                window.dash_clientside.set_props(id, {value: ''});
+            }
+        };
+        resetList('sql-browser-schema-list');
+        resetList('sql-browser-table-list');
+        clearValue('sql-catalog-input');
+        clearValue('sql-schema-input');
+        clearValue('predopt-table-input');
+        window.dash_clientside.set_props('sql-cat-selected', {data: null});
+        window.dash_clientside.set_props('sql-schema-selected', {data: null});
+        window.dash_clientside.set_props('sql-table-selected', {data: null});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-cleanup-dummy", "data", allow_duplicate=True),
+    Input("conn-config", "data"),
+    prevent_initial_call=True,
+)
 
 
 # 0c. Render SQL editor when SQL scope is selected or connection changes
@@ -2812,7 +2925,10 @@ def render_sql_on_scope(scope, conn_config, current_endpoint, cloud, cache):
     if scope == "lakebase":
         return build_lakebase_panel(), "form-panel form-panel-wide", _RESPONSE_EMPTY
 
-    # Switching away from SQL/Lakebase — restore the endpoint detail and cached response
+    if scope == "predopt":
+        return build_predopt_panel(), "form-panel form-panel-wide", _RESPONSE_EMPTY
+
+    # Switching away from SQL/Lakebase/Predictive Optimization — restore endpoint detail and cached response
     if not current_endpoint:
         return WELCOME, "form-panel", _RESPONSE_EMPTY
 
@@ -3148,16 +3264,19 @@ def sql_browser_table_clicked(n_clicks_list, btn_ids, current_items, catalog, sc
 app.clientside_callback(
     """
     function(catalog, schema, table) {
-        if (catalog) {
-            window.dash_clientside.set_props('sql-catalog-input', {value: catalog});
-        }
-        if (schema) {
-            window.dash_clientside.set_props('sql-schema-input', {value: schema});
-        }
+        /* set_props only when the target exists — these fields live in the SQL
+           panel (sql scope) or the Predictive Optimization panel (predopt scope),
+           and the same browser drives both. */
+        var setIf = function(id, val) {
+            if (document.getElementById(id)) {
+                window.dash_clientside.set_props(id, {value: val});
+            }
+        };
+        if (catalog) setIf('sql-catalog-input', catalog);
+        if (schema) setIf('sql-schema-input', schema);
         if (table && schema && catalog) {
             var fqn = '`' + catalog + '`.`' + schema + '`.`' + table + '`';
-            var stmt = 'SELECT * FROM ' + fqn + ' LIMIT 100';
-            window.dash_clientside.set_props('sql-textarea', {value: stmt});
+            setIf('sql-textarea', 'SELECT * FROM ' + fqn + ' LIMIT 100');
         }
         return window.dash_clientside.no_update;
     }
@@ -3166,6 +3285,36 @@ app.clientside_callback(
     Input("sql-cat-selected", "data"),
     Input("sql-schema-selected", "data"),
     Input("sql-table-selected", "data"),
+    prevent_initial_call=True,
+)
+
+
+# 0o. Predictive Optimization: keep the visible table_name input in sync with
+#     the browser selection. Picking a table fills it (the server callback 0n
+#     then auto-runs the status check); changing catalog/schema clears it.
+app.clientside_callback(
+    """
+    function(table, catalog, schema) {
+        /* Only act when the Predictive Optimization panel is on screen. */
+        if (!document.getElementById('predopt-table-input')) {
+            return window.dash_clientside.no_update;
+        }
+        var trig = dash_clientside.callback_context.triggered;
+        var src = (trig && trig.length) ? trig[0].prop_id.split('.')[0] : '';
+        if (src === 'sql-table-selected' && table && schema && catalog) {
+            window.dash_clientside.set_props('predopt-table-input',
+                {value: catalog + '.' + schema + '.' + table});
+        } else if (src === 'sql-cat-selected' || src === 'sql-schema-selected') {
+            /* New catalog/schema → selection incomplete, clear the stale table. */
+            window.dash_clientside.set_props('predopt-table-input', {value: ''});
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("predopt-click-dummy", "data", allow_duplicate=True),
+    Input("sql-table-selected", "data"),
+    Input("sql-cat-selected", "data"),
+    Input("sql-schema-selected", "data"),
     prevent_initial_call=True,
 )
 
@@ -3233,6 +3382,84 @@ app.clientside_callback(
     Input("url", "pathname"),
     prevent_initial_call=False,
 )
+
+
+# 0m. Predictive Optimization: install a global click handler for the panel
+#     buttons that reads table_name from the input and writes predopt-trigger.
+#     Same dynamic-button pattern as the SQL execute handler (0e).
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window._predoptClickInstalled) return window.dash_clientside.no_update;
+        window._predoptClickInstalled = true;
+        document.addEventListener('click', function(e) {
+            var trig = e.target.closest('#predopt-trigger-btn');
+            var stat = e.target.closest('#predopt-status-btn');
+            if (!trig && !stat) return;
+            var inp = document.getElementById('predopt-table-input');
+            var table_name = inp ? (inp.value || '').trim() : '';
+            window.dash_clientside.set_props('predopt-trigger', {data: {
+                action: trig ? 'trigger' : 'status',
+                table_name: table_name,
+                ts: Date.now(),
+            }});
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("predopt-click-dummy", "data"),
+    Input("url", "pathname"),
+    prevent_initial_call=False,
+)
+
+
+# 0n. Predictive Optimization: execute the trigger / status API call.
+#     Fires from the panel buttons (predopt-trigger) OR automatically when a
+#     table is picked in the shared browser (sql-table-selected) while the
+#     Predictive Optimization scope is active.
+@app.callback(
+    Output("response-container", "children", allow_duplicate=True),
+    Input("predopt-trigger", "data"),
+    Input("sql-table-selected", "data"),
+    State("sql-cat-selected", "data"),
+    State("sql-schema-selected", "data"),
+    State("api-scope", "data"),
+    State("conn-config", "data"),
+    prevent_initial_call=True,
+)
+def execute_predopt(trigger, table_sel, cat_sel, schema_sel, scope, conn_config):
+    """Callback 0n: Call the predictive-optimization trigger or status API."""
+    src = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+
+    if src == "sql-table-selected":
+        # Auto status-check when a full table is selected in the browser.
+        if scope != "predopt" or not (table_sel and cat_sel and schema_sel):
+            return no_update
+        action = "status"
+        table_name = f"{cat_sel}.{schema_sel}.{table_sel}"
+    else:
+        if not trigger or not isinstance(trigger, dict):
+            return no_update
+        action = trigger.get("action")
+        table_name = (trigger.get("table_name") or "").strip()
+        if not table_name:
+            return build_error_panel("Select a table from the browser, or enter a fully-qualified name (catalog.schema.table).")
+
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return build_error_panel("No connection. Configure a connection in the user menu.")
+
+    if action == "status":
+        result = make_api_call(
+            method="GET", path="/api/2.0/predictive-optimization/trigger/status",
+            token=token, host=host, query_params={"table_name": table_name}, timeout=30,
+        )
+    else:
+        result = make_api_call(
+            method="POST", path="/api/2.0/predictive-optimization/trigger",
+            token=token, host=host, body={"table_name": table_name}, timeout=30,
+        )
+    return build_response_panel(result)
 
 
 # 1. Init: populate topbar on page load or connection change
