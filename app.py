@@ -1979,6 +1979,10 @@ def _sql_query_simple(conn_config, statement):
 
 
 _BROWSER_LOADING = [html.Div(className="sql-browser-spinner")]
+_BROWSER_NOT_CONNECTED = [html.Div(
+    "Not connected — select a workspace or profile",
+    className="sql-browser-empty",
+)]
 
 
 def _browser_list_items(names, item_type, active=None):
@@ -2188,19 +2192,35 @@ def build_sql_panel(warehouses):
     ], className="endpoint-card")
 
 
-def build_predopt_panel(table_name=""):
+def build_predopt_panel(catalog="", schema="", table=""):
     """Build the Predictive Optimization "Optimize Now" panel.
 
     Reuses the shared sidebar catalog/schema/table browser (the same one
     used by the SQL scope) to pick a managed table, then either triggers
     predictive optimization on it or checks the status of a prior trigger.
+    Picking a table on the left fills the catalog / schema / table fields
+    below (which combine into the fully-qualified ``table_name``).
 
     Args:
-        table_name: Optional fully-qualified table name to pre-fill.
+        catalog: Optional catalog name to pre-fill.
+        schema: Optional schema name to pre-fill.
+        table: Optional table name to pre-fill.
 
     Returns:
         A Dash ``html.Div`` containing the panel layout.
     """
+    def _fqn_field(label, input_id, value, placeholder, desc):
+        return html.Div([
+            html.Div([
+                html.Span(label, className="param-name"),
+                dbc.Badge("required", color="danger", className="param-badge"),
+            ], className="param-label"),
+            html.Div(desc, className="param-desc"),
+            dbc.Input(
+                id=input_id, placeholder=placeholder, value=value,
+                className="param-input font-mono",
+            ),
+        ], className="param-row")
     return html.Div([
         html.Div([
             html.Div([
@@ -2228,21 +2248,19 @@ def build_predopt_panel(table_name=""):
             className="endpoint-desc",
         ),
         html.Hr(className="divider"),
-        html.Div([
-            html.Div([
-                html.Span("table_name", className="param-name"),
-                dbc.Badge("required", color="danger", className="param-badge"),
-            ], className="param-label"),
-            html.Div(
-                "Fully-qualified managed table name (catalog.schema.table). "
-                "Selecting a table in the browser fills this in and loads its status.",
-                className="param-desc",
-            ),
-            dbc.Input(
-                id="predopt-table-input", placeholder="catalog.schema.table",
-                value=table_name, className="param-input font-mono",
-            ),
-        ], className="param-row"),
+        _fqn_field(
+            "catalog", "predopt-catalog-input", catalog, "e.g. main",
+            "Unity Catalog containing the managed table. Filled when you pick a table on the left.",
+        ),
+        _fqn_field(
+            "schema", "predopt-schema-input", schema, "e.g. default",
+            "Schema containing the managed table. Filled when you pick a table on the left.",
+        ),
+        _fqn_field(
+            "table", "predopt-table-input", table, "e.g. events",
+            "Managed table name. Selecting a table in the browser fills these three in "
+            "(catalog.schema.table) and loads its current optimization status.",
+        ),
         html.Hr(className="divider"),
         html.Div([
             html.Button(
@@ -2860,12 +2878,58 @@ app.clientside_callback(
 def fetch_sql_catalogs(scope, conn_config):
     """Callback 0b2: (Re)populate the catalog list when the SQL / Predictive
     Optimization scope is activated *or* the connection changes (profile
-    switch / new workspace), so the selector never shows stale catalogs."""
+    switch / new workspace), so the selector never shows stale catalogs.
+
+    Skips the scan entirely when no workspace connection is active — running
+    ``SHOW CATALOGS`` (and starting a warehouse) without a host/token is
+    pointless. When a workspace/profile is selected and resolves to a
+    connection, it re-runs the scan."""
     if scope not in ("sql", "predopt"):
         return no_update
+    # No active connection → don't start the catalog listing.
+    host, token = _resolve_conn(conn_config)
+    if not host or not token:
+        return _BROWSER_NOT_CONNECTED
     rows = _sql_query_simple(conn_config, "SHOW CATALOGS")
     catalogs = sorted(r[0] for r in rows if r)
     return _browser_list_items(catalogs, "cat")
+
+
+# 0b2b. Show a loading spinner in the catalog list the instant the SQL /
+#       Predictive Optimization scope opens or the connection changes — so the
+#       user sees the scan is running rather than a stale/empty list while the
+#       server-side SHOW CATALOGS query (which may also start a warehouse)
+#       completes. Skipped when no connection is configured (the server
+#       callback then renders the "not connected" message instead).
+app.clientside_callback(
+    """
+    function(scope, conn) {
+        if (scope !== 'sql' && scope !== 'predopt') {
+            return window.dash_clientside.no_update;
+        }
+        /* Best-effort connection check; the server callback enforces the real
+           gate. Only suppress the spinner when conn-config clearly has nothing
+           to connect with. */
+        var notConnected = false;
+        if (conn && typeof conn === 'object') {
+            if (conn.mode === 'profile') notConnected = !conn.profile;
+            else if (conn.mode === 'custom') notConnected = !(conn.host && conn.token);
+        }
+        if (notConnected) return window.dash_clientside.no_update;
+        var el = document.getElementById('sql-browser-catalog-list');
+        if (el) {
+            var spinner = {props: {className: 'sql-browser-spinner'},
+                           type: 'Div', namespace: 'dash_html_components'};
+            window.dash_clientside.set_props('sql-browser-catalog-list', {children: [spinner]});
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sql-browser-spinner-dummy", "data", allow_duplicate=True),
+    Input("api-scope", "data"),
+    Input("conn-config", "data"),
+    prevent_initial_call=True,
+)
 
 
 # 0b3. When the connection changes, reset the rest of the shared catalog/schema/
@@ -2891,6 +2955,8 @@ app.clientside_callback(
         resetList('sql-browser-table-list');
         clearValue('sql-catalog-input');
         clearValue('sql-schema-input');
+        clearValue('predopt-catalog-input');
+        clearValue('predopt-schema-input');
         clearValue('predopt-table-input');
         window.dash_clientside.set_props('sql-cat-selected', {data: null});
         window.dash_clientside.set_props('sql-schema-selected', {data: null});
@@ -3299,14 +3365,28 @@ app.clientside_callback(
         if (!document.getElementById('predopt-table-input')) {
             return window.dash_clientside.no_update;
         }
+        var setIf = function(id, val) {
+            if (document.getElementById(id)) {
+                window.dash_clientside.set_props(id, {value: val});
+            }
+        };
         var trig = dash_clientside.callback_context.triggered;
         var src = (trig && trig.length) ? trig[0].prop_id.split('.')[0] : '';
         if (src === 'sql-table-selected' && table && schema && catalog) {
-            window.dash_clientside.set_props('predopt-table-input',
-                {value: catalog + '.' + schema + '.' + table});
-        } else if (src === 'sql-cat-selected' || src === 'sql-schema-selected') {
-            /* New catalog/schema → selection incomplete, clear the stale table. */
-            window.dash_clientside.set_props('predopt-table-input', {value: ''});
+            /* Full table picked → fill all three fields. */
+            setIf('predopt-catalog-input', catalog);
+            setIf('predopt-schema-input', schema);
+            setIf('predopt-table-input', table);
+        } else if (src === 'sql-cat-selected') {
+            /* New catalog → fill catalog, clear the now-stale schema + table. */
+            setIf('predopt-catalog-input', catalog || '');
+            setIf('predopt-schema-input', '');
+            setIf('predopt-table-input', '');
+        } else if (src === 'sql-schema-selected') {
+            /* New schema → fill catalog + schema, clear the stale table. */
+            setIf('predopt-catalog-input', catalog || '');
+            setIf('predopt-schema-input', schema || '');
+            setIf('predopt-table-input', '');
         }
         return window.dash_clientside.no_update;
     }
@@ -3396,8 +3476,14 @@ app.clientside_callback(
             var trig = e.target.closest('#predopt-trigger-btn');
             var stat = e.target.closest('#predopt-status-btn');
             if (!trig && !stat) return;
-            var inp = document.getElementById('predopt-table-input');
-            var table_name = inp ? (inp.value || '').trim() : '';
+            var val = function(id) {
+                var el = document.getElementById(id);
+                return el ? (el.value || '').trim() : '';
+            };
+            var cat = val('predopt-catalog-input');
+            var sch = val('predopt-schema-input');
+            var tbl = val('predopt-table-input');
+            var table_name = (cat && sch && tbl) ? (cat + '.' + sch + '.' + tbl) : '';
             window.dash_clientside.set_props('predopt-trigger', {data: {
                 action: trig ? 'trigger' : 'status',
                 table_name: table_name,
@@ -4313,8 +4399,10 @@ def sync_active_button(endpoint, _scope, btn_ids):
 def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud, scope):
     """Callback 9: Render the endpoint detail card (header, path, params, Execute button)."""
     if not endpoint:
-        # Don't overwrite the SQL/Lakebase panel when those scopes are active
-        if scope in ("sql", "lakebase"):
+        # Don't overwrite the SQL/Lakebase/Predictive Optimization panel when
+        # those scopes are active (e.g. clear_caches_on_connect nulls
+        # selected-endpoint on a connection change, which fires this callback).
+        if scope in ("sql", "lakebase", "predopt"):
             return no_update, no_update
         return WELCOME, "form-panel"
     prefill = dict(endpoint.get("_prefill", {}))
