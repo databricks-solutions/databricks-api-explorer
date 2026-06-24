@@ -1947,34 +1947,52 @@ def _fetch_warehouses(conn_config):
 
 
 def _sql_query_simple(conn_config, statement):
-    """Run a quick SQL query and return the list of rows (each row is a list)."""
+    """Run a quick SQL query and return the list of rows (each row is a list).
+
+    Tries already-running warehouses first (fast, no cold start), then falls
+    back to starting one stopped warehouse. Crucially it does *not* give up
+    after the first warehouse: a single bad endpoint — e.g. a Real-Time-mode
+    warehouse that returns ``500 merge_json_arrays: malformed JSON batch`` on
+    the INLINE/JSON_ARRAY statement API — would otherwise blank the catalog
+    browser even though other warehouses work fine. Returns the rows from the
+    first warehouse whose query SUCCEEDED.
+    """
     host, token = _resolve_conn(conn_config)
     if not host or not token:
         return []
-    # Find a running warehouse for metadata queries
     warehouses = _fetch_warehouses(conn_config)
-    running = [w for w in warehouses if w.get("state") == "RUNNING"]
-    wh_id = running[0]["id"] if running else (warehouses[0]["id"] if warehouses else None)
-    if not wh_id:
+    if not warehouses:
         return []
-    result = make_api_call(
-        method="POST", path="/api/2.0/sql/statements",
-        token=token, host=host, timeout=15,
-        body={
-            "statement": statement,
-            "warehouse_id": wh_id,
-            "wait_timeout": "10s",
-            "on_wait_timeout": "CANCEL",
-            "disposition": "INLINE",
-            "format": "JSON_ARRAY",
-            "row_limit": 5000,
-        },
-    )
-    if result.get("success"):
-        data = result["data"]
-        if data.get("status", {}).get("state") == "SUCCEEDED":
-            chunks = data.get("result", {}).get("data_array") or []
-            return chunks
+    running = [w for w in warehouses if w.get("state") == "RUNNING"]
+    stopped = [w for w in warehouses if w.get("state") != "RUNNING"]
+    # (warehouse, wait_timeout, request_timeout) in priority order. Running
+    # warehouses respond fast; the one cold-start fallback gets a longer wait
+    # so it has a chance to warm up within the call.
+    candidates = [(w, "10s", 15) for w in running]
+    if stopped:
+        candidates.append((stopped[0], "30s", 35))
+    for w, wait, req_timeout in candidates:
+        wh_id = w.get("id")
+        if not wh_id:
+            continue
+        result = make_api_call(
+            method="POST", path="/api/2.0/sql/statements",
+            token=token, host=host, timeout=req_timeout,
+            body={
+                "statement": statement,
+                "warehouse_id": wh_id,
+                "wait_timeout": wait,
+                "on_wait_timeout": "CANCEL",
+                "disposition": "INLINE",
+                "format": "JSON_ARRAY",
+                "row_limit": 5000,
+            },
+        )
+        if result.get("success"):
+            data = result["data"]
+            if data.get("status", {}).get("state") == "SUCCEEDED":
+                return data.get("result", {}).get("data_array") or []
+        # Otherwise fall through and try the next candidate warehouse.
     return []
 
 
