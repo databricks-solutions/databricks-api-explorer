@@ -61,6 +61,7 @@ from auth import (
     get_host,
     get_metastore_name,
     get_sp_token,
+    get_workspace_id,
     get_workspace_name,
     make_api_call,
     normalize_conn_config,
@@ -1239,6 +1240,8 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
             ]
             if ep.get("legacy"):
                 children.append(html.Span("LEGACY", className="ep-legacy", title="Legacy API — prefer the newer version"))
+            if ep.get("preview"):
+                children.append(html.Span("PREVIEW", className="ep-preview", title="Public Preview API — may change and may not be enabled in every workspace"))
             doc_url = get_doc_url(ep["id"], cloud)
             if doc_url:
                 children.append(html.A(
@@ -1260,6 +1263,8 @@ def _build_accordion_items(catalog: Dict[str, Any], cloud: str = None) -> list:
         ]
         if cat.get("legacy"):
             title_children.append(html.Span("LEGACY", className="ep-legacy cat-legacy", title="Legacy API category — see description for the modern replacement"))
+        if cat.get("preview"):
+            title_children.append(html.Span("PREVIEW", className="ep-preview cat-preview", title="Public Preview API category — may change and may not be enabled in every workspace"))
         title_children.append(dbc.Badge(str(len(cat["endpoints"])), color="secondary", className="ms-auto endpoint-count"))
         if cat_doc_url:
             title_children.append(html.A(
@@ -4432,11 +4437,21 @@ def render_endpoint_detail(endpoint: Optional[Dict], conn_config, cloud, scope):
         if acct_id:
             prefill["account_id"] = acct_id
 
+    # Auto-fill workspace_id for endpoints that embed it in the path
+    # (AI Search AIP resource names, Workspace Assignment, etc.)
+    if "workspace_id" in endpoint.get("path_params", []) and "workspace_id" not in prefill:
+        ws_host, ws_token = _resolve_conn(conn_config)
+        ws_id = get_workspace_id(ws_host, ws_token) if ws_host else None
+        if ws_id:
+            prefill["workspace_id"] = ws_id
+
     cat_color = endpoint.get("category_color", "#00d4ff")
     doc_url = get_doc_url(endpoint["id"], cloud)
     name_children = [html.Span(endpoint["name"])]
     if endpoint.get("legacy"):
         name_children.append(html.Span("LEGACY", className="ep-legacy ep-legacy-detail", title="Legacy API — prefer the newer version"))
+    if endpoint.get("preview"):
+        name_children.append(html.Span("PREVIEW", className="ep-preview ep-preview-detail", title="Public Preview API — may change and may not be enabled in every workspace"))
     if doc_url:
         name_children.append(html.A(
             html.I(className="bi bi-box-arrow-up-right"),
@@ -5416,6 +5431,14 @@ def handle_iframe_link_click(link_data, conn_config, cache):
         acct_id = get_account_id(profile)
         if acct_id:
             prefill["account_id"] = acct_id
+
+    # Auto-fill workspace_id for endpoints that embed it in the path
+    # (AI Search AIP resource names, Workspace Assignment, etc.)
+    if "workspace_id" in endpoint.get("path_params", []) and "workspace_id" not in prefill:
+        ws_host, ws_token = _resolve_conn(conn_config)
+        ws_id = get_workspace_id(ws_host, ws_token) if ws_host else None
+        if ws_id:
+            prefill["workspace_id"] = ws_id
 
     for k, v in prefill.items():
         if k in endpoint.get("path_params", []):

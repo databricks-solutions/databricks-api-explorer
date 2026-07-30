@@ -208,10 +208,12 @@ body {
 .sidebar.sidebar-rail:not(:hover) .ep-method,
 .sidebar.sidebar-rail:not(:hover) .ep-doc-link,
 .sidebar.sidebar-rail:not(:hover) .ep-legacy,
+.sidebar.sidebar-rail:not(:hover) .ep-preview,
 .sidebar.sidebar-rail:not(:hover) .endpoint-count,
 .sidebar.sidebar-rail:not(:hover) .cat-name,
 .sidebar.sidebar-rail:not(:hover) .cat-doc-link,
 .sidebar.sidebar-rail:not(:hover) .cat-legacy,
+.sidebar.sidebar-rail:not(:hover) .cat-preview,
 .sidebar.sidebar-rail:not(:hover) .sql-browser-label,
 .sidebar.sidebar-rail:not(:hover) .sql-browser-item-name,
 .sidebar.sidebar-rail:not(:hover) .sql-browser-describe-btn {
@@ -450,6 +452,28 @@ body {
   margin-left: 4px;
 }
 .cat-legacy {
+  margin-left: 8px;
+}
+
+.ep-preview {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(168,85,247,0.15);
+  color: var(--purple);
+  border: 1px solid rgba(168,85,247,0.35);
+}
+.ep-preview-detail {
+  font-size: 10px;
+  padding: 3px 7px;
+  margin-left: 4px;
+}
+.cat-preview {
   margin-left: 8px;
 }
 

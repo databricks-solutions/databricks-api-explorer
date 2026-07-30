@@ -18,6 +18,7 @@ Attributes:
         ``~/.databrickscfg`` at import time.
 """
 import os
+import re
 import time
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
@@ -180,6 +181,39 @@ def get_account_id(profile: Optional[str] = None) -> Optional[str]:
     try:
         cfg = sdk_config(profile=profile)
         return getattr(cfg, "account_id", None) or None
+    except Exception:
+        return None
+
+
+def get_workspace_id(host: str, token: str) -> Optional[str]:
+    """Resolve the numeric workspace ID for a workspace host.
+
+    Azure hosts embed the ID in the ``adb-{id}.N`` hostname; AWS/GCP
+    hosts expose it via the ``X-Databricks-Org-Id`` response header on
+    any authenticated API call.
+
+    Args:
+        host: Full workspace URL including scheme.
+        token: Bearer token for authorisation.
+
+    Returns:
+        The workspace ID as a string, or ``None`` on failure.
+    """
+    if not host:
+        return None
+    m = re.search(r"adb-(\d+)", host)
+    if m:
+        return m.group(1)
+    if not token:
+        return None
+    try:
+        r = requests.get(
+            f"{host.rstrip('/')}/api/2.0/clusters/list",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"page_size": "1"},
+            timeout=5,
+        )
+        return r.headers.get("X-Databricks-Org-Id") or None
     except Exception:
         return None
 
