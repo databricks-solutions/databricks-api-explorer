@@ -3712,8 +3712,8 @@ LIST_TO_GET: Dict[str, Any] = {
     "uc-models-list":             ("uc-models-get",          "registered_models", "full_name",  "full_name",  "name", None, [
                                       ("uc-model-versions-list", "bi-list-ul", "List Versions", {"full_name": "full_name"}),
                                   ]),
-    "uc-model-versions-list":     ("uc-model-versions-get",  "model_versions",    "version",    "version",    None, {"full_name": "model_name"}, [
-                                      ("uc-model-versions-get-by-alias", "bi-tag", "Lookup by Alias", {"full_name": "model_name"}),
+    "uc-model-versions-list":     ("uc-model-versions-get",  "model_versions",    "version",    "version",    None, {"full_name": "{catalog_name}.{schema_name}.{model_name}"}, [
+                                      ("uc-model-versions-get-by-alias", "bi-tag", "Lookup by Alias", {"full_name": "{catalog_name}.{schema_name}.{model_name}"}),
                                   ]),
     "mlflow-registered-models-search": ("mlflow-registered-models-get", "registered_models", "name", "name", None, None, [
                                       ("mlflow-registered-models-get-latest-versions", "bi-tags", "Get Latest Versions", {"name": "name"}),
@@ -4685,6 +4685,15 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
         extras = {}
         if extra_params:
             for target_param, source_field in extra_params.items():
+                # "{field}.{other}" template: compose the value from multiple
+                # item fields via str.format_map (used to rebuild a three-part
+                # UC full_name from separate catalog/schema/model_name fields).
+                if "{" in source_field and isinstance(item, dict):
+                    try:
+                        extras[target_param] = source_field.format_map(item)
+                    except (KeyError, IndexError, ValueError):
+                        pass
+                    continue
                 # "field#N" suffix: split the resolved value on '.' and take segment N
                 dot_idx = None
                 if "#" in source_field:
@@ -4715,6 +4724,12 @@ def extract_chips(endpoint_id: str, data: Any) -> List[Dict[str, Any]]:
             for act_id, act_icon, act_title, act_params in actions_def:
                 act_p = {}
                 for tp, sf in act_params.items():
+                    if "{" in sf and isinstance(item, dict):
+                        try:
+                            act_p[tp] = sf.format_map(item)
+                        except (KeyError, IndexError, ValueError):
+                            pass
+                        continue
                     sf_gp = sf.startswith("@@")
                     sf_strip = sf.startswith("@") and not sf_gp
                     sf_key = sf[2:] if sf_gp else (sf[1:] if sf_strip else sf)
